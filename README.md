@@ -1,4 +1,4 @@
-# 삼성 DS-KAIST AI Expert 프로그램 
+# KAIST AI 프로그램 
 ## Conversation Model
 
 실습 일시: 2019년 11월 29일 (수), 13:00 - 18:00
