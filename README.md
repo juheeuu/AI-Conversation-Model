@@ -1,7 +1,7 @@
 # KAIST AI 프로그램 
 ## Conversation Model
 
-실습 일시: 2019년 11월 29일 (수), 13:00 - 18:00
+실습 일시: 2019년 11월 29일 (금), 13:00 - 18:00
 
 담당 조교: 박진영 (jy.bak@kaist.ac.kr), 박성준 (sungjoon.park@kaist.ac.kr)
 
