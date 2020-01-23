@@ -10,8 +10,9 @@ PAD_TOKEN = '<pad>'
 UNK_TOKEN = '<unk>'
 SOS_TOKEN = '<sos>'
 EOS_TOKEN = '<eos>'
+SEP_TOKEN = '<sep>'
 
-PAD_ID, UNK_ID, SOS_ID, EOS_ID = [0, 1, 2, 3]
+PAD_ID, UNK_ID, SOS_ID, EOS_ID, SEP_ID = [0, 1, 2, 3, 4]
 
 
 class Vocab(object):
@@ -23,12 +24,14 @@ class Vocab(object):
     def update(self, max_size=None, min_freq=1):
         self.id2word = {
             PAD_ID: PAD_TOKEN, UNK_ID: UNK_TOKEN,
-            SOS_ID: SOS_TOKEN, EOS_ID: EOS_TOKEN
+            SOS_ID: SOS_TOKEN, EOS_ID: EOS_TOKEN,
+            SEP_ID: SEP_TOKEN,
         }
         self.word2id = defaultdict(lambda: UNK_ID)  # Not in vocab => return UNK
         self.word2id.update({
             PAD_TOKEN: PAD_ID, UNK_TOKEN: UNK_ID,
-            SOS_TOKEN: SOS_ID, EOS_TOKEN: EOS_ID
+            SOS_TOKEN: SOS_ID, EOS_TOKEN: EOS_ID,
+            SEP_TOKEN: SEP_ID
         })
 
         vocab_size = 4
@@ -36,7 +39,7 @@ class Vocab(object):
 
         freqdist = self.freqdist.copy()
         special_freqdist = {token: freqdist[token]
-                            for token in [PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN]}
+                            for token in [PAD_TOKEN, UNK_TOKEN, SOS_TOKEN, EOS_TOKEN, SEP_TOKEN]}
         freqdist.subtract(special_freqdist)
 
         sorted_frequency_counter = sorted(freqdist.items(), key=lambda k_v: k_v[0])
