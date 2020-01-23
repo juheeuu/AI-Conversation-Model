@@ -69,15 +69,66 @@ class ConvUserDataset(ConvDataset):
 
         return utterances, conversation_length, utterance_length, conversation_users
 
+class ConvPTBDataset(ConvDataset):
+    def __init__(self, convs, vocab):
+        """
+        Dataset class for conversation
+        Dataset class for conversation
+        :param convs: A list of conversation that is represented as a list of utterances
+        :param convs_length: A list of integer that indicates the number of utterances in each conversation
+        :param utterances_length: A list of list whose element indicates the number of tokens in each utterance
+        :param vocab: vocab class
+        """
+        self.convs = convs
+        self.vocab = vocab
+        self.len = len(convs)   # total number of conversations
 
-def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, batch_size=100, shuffle=True):
+    def __getitem__(self, index):
+        """
+        Extract one conversation
+        :param index: index of the conversation
+        :return: utterances, conversation_length, utterance_length
+        """
+
+        """
+        it need <sep> token for each conversation 
+        """
+        utterances = self.convs[index]
+
+        target_utterance = utterances[-1]
+        input_utterances = utterances[:-1]
+
+        input_utterances_str = ''
+        for utter in input_utterances: 
+            input_utterances_str = ' '.join(utter).replace(' <pad> ', '') + ' <sep>'
+        input_utterances_str += ' <eos>'
+        
+        input_utterances = input_utterances_str.split()
+
+        SEQ_LEN = 512
+        if len(input_utterances) <= SEQ_LEN: 
+            input_utterances += ['<pad>' for _ in range(len(input_utterances) - 512)]
+        else: 
+            input_utterances = input_utterances.reverse()[:512].reverse()
+
+        utterances = [input_utterances] + target_utterance
+            
+        utterances = self.sent2id(utterances)
+
+        return utterances
+
+
+
+def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, batch_size=100, shuffle=True, is_ptb_model=False):
     def collate_fn(data):
         # Sort by conversation length (descending order) to use 'pack_padded_sequence'
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
 
-    if convs_users is None:
+    if convs_users is None and not is_ptb_model:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
+    elif is_ptb_model:
+        dataset = ConvPTBDataset(convs, vocab)
     else:
         dataset = ConvUserDataset(convs, convs_users, convs_length, utterances_length, vocab)
 
