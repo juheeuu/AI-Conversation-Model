@@ -110,12 +110,11 @@ class ConvPTBDataset(ConvDataset):
             input_utterances += ['<pad>' for _ in range(len(input_utterances) - 512)]
         else: 
             input_utterances = input_utterances.reverse()[:512].reverse()
-
-        utterances = [input_utterances] + target_utterance
             
-        utterances = self.sent2id(utterances)
+        input_utterances = self.sent2id(input_utterances)
+        target_utterance = self.sent2id(target_utterance)
 
-        return utterances
+        return input_utterances, target_utterance
 
 
 
