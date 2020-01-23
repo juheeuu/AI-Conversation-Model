@@ -33,7 +33,7 @@ class SloverPretrainingBased(Solver):
                 target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
 
                 self.optimizer.zero_grad()
-                utterance_logits = self.model(input_utterances)
+                utterance_logits = self.model(input_utterances, target_utterance, target_utterance_length)
 
                 batch_loss, n_words = masked_cross_entropy(utterance_logits, target_utterance, target_utterance_length)
 
@@ -94,7 +94,7 @@ class SloverPretrainingBased(Solver):
                 target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
 
             self.optimizer.zero_grad()
-            utterance_logits = self.model(input_utterances)
+            utterance_logits = self.model(input_utterances, target_utterance_length, target_utterance_length)
 
             batch_loss, n_words = masked_cross_entropy(utterance_logits, target_utterances, target_utterance_length)
 
@@ -122,7 +122,7 @@ class SloverPretrainingBased(Solver):
                 target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
 
             self.optimizer.zero_grad()
-            utterances_logits = self.model(input_utterances)
+            utterances_logits = self.model(input_utterances, target_utterance, target_utterance_length)
 
             batch_loss, n_words = masked_cross_entropy(utterances_logits, target_utterance, target_utterance_length)
 
