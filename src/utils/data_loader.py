@@ -70,7 +70,7 @@ class ConvUserDataset(ConvDataset):
         return utterances, conversation_length, utterance_length, conversation_users
 
 class ConvPTBDataset(ConvDataset):
-    def __init__(self, convs, vocab):
+    def __init__(self, convs, utterances_length, vocab):
         """
         Dataset class for conversation
         Dataset class for conversation
@@ -82,6 +82,7 @@ class ConvPTBDataset(ConvDataset):
         self.convs = convs
         self.vocab = vocab
         self.len = len(convs)   # total number of conversations
+        self.utterances_length = utterances_length
 
     def __getitem__(self, index):
         """
@@ -94,7 +95,6 @@ class ConvPTBDataset(ConvDataset):
         it need <sep> token for each conversation 
         """
         utterances = self.convs[index]
-
         target_utterance = utterances[-1]
         input_utterances = utterances[:-1]
 
@@ -113,8 +113,9 @@ class ConvPTBDataset(ConvDataset):
             
         input_utterances = self.sent2id(input_utterances)
         target_utterance = self.sent2id(target_utterance)
+        utterance_length = self.utterances_length[index]
 
-        return input_utterances, target_utterance
+        return input_utterances, target_utterance, utterance_length
 
 
 
@@ -127,7 +128,7 @@ def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, 
     if convs_users is None and not is_ptb_model:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
     elif is_ptb_model:
-        dataset = ConvPTBDataset(convs, vocab)
+        dataset = ConvPTBDataset(convs, utterance_length, vocab)
     else:
         dataset = ConvUserDataset(convs, convs_users, convs_length, utterances_length, vocab)
 
