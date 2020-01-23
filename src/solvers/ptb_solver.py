@@ -79,10 +79,65 @@ class SloverPretrainingBased(Solver):
         return epoch_loss_history
 
     def evaluate(self):
-        return 0 
+        self.model.eval()
+        batch_loss_history = []
+        n_total_words = 0
+
+        for batch_i, (input_utterances, target_utterance, utterances_length) in \
+            enumerate(tqdm(self.train_data_loader, ncols=80)):
+
+            target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
+                
+            with torch.no_grad():
+                input_utterances = to_var(torch.LongTensor(input_utterances))
+                target_utterance = to_var(torch.LongTensor(target_utterance))
+                target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
+
+            self.optimizer.zero_grad()
+            utterance_logits = self.model(input_utterances)
+
+            batch_loss, n_words = masked_cross_entropy(utterance_logits, target_utterances, target_utterance_length)
+
+            assert not isnan(batch_loss.item())
+            batch_loss_history.append(batch_loss.item())
+            n_total_words += n_words.item()
+        
+        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        print(f'Validation loss: {epoch_loss:.3f}\n')
+
+        return epoch_loss
 
     def test(self):
-        pass 
+        self.model.eval()
+        batch_loss_history = []
+        n_total_words = 0
+        for batch_i, (input_utterances, target_utterance, utterances_length) in \
+             enumerate(tqdm(self.train_data_loader, ncols=80)):
+            
+            target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
+                
+            with torch.no_grad():
+                input_utterances = to_var(torch.LongTensor(input_utterances))
+                target_utterance = to_var(torch.LongTensor(target_utterance))
+                target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
+
+            self.optimizer.zero_grad()
+            utterances_logits = self.model(input_utterances)
+
+            batch_loss, n_words = masked_cross_entropy(utterances_logits, target_utterance, target_utterance_length)
+
+            assert not isnan(batch_loss.item())
+            batch_loss_history.append(batch_loss.item())
+            n_total_words += n_words.item()
+
+        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        
+        print(f'Number of words: {n_total_words}')
+        print(f'Bits per word: {epoch_loss:.3f}')
+        word_perplexity = np.exp(epoch_loss)
+        print(f'Word perplexity : {word_perplexity:.3f}\n')
+
+        return word_perplexity
 
     def export_samples(self, beam_size=5):
         pass
