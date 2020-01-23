@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from utils import to_var, PAD_ID
 import pickle
@@ -152,3 +153,70 @@ class ContextRNN(BaseRNNEncoder):
 
         outputs, hidden = self.rnn(encoder_hidden, hidden)
         return outputs, hidden
+
+
+class PTBEncoder(nn.Module):
+    def __init__(self, vocab_size, embedding_size,
+                 hidden_size, feedforward_hidden_size=2048, num_layers=12,
+                 num_heads=8, dropout=0.0, pretrained_wv_path=None):
+        super(PTBEncoder, self).__init__()
+        
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers 
+        self.dropout = dropout 
+        self.feedforward_hidden_size = feedforward_hidden_size
+
+        if pretrained_wv_path is None:
+            self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
+        else:
+            with open(pretrained_wv_path, 'rb') as f:
+                weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
+
+            self.embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False)
+            print("Load the wv Done")
+        
+        self.pos_encoder = PositionalEncoding(hidden_size, dropout)
+        self.dropoutLayer = nn.Dropout(dropout)
+        encoder_layer = nn.TransformerEncoderLayer(hidden_size, num_heads, 
+                            feedforward_hidden_size, dropout, "relu")
+        encoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers, encoder_norm)
+
+    def forward(self, inputs):
+
+        embedded = self.dropout(self.pos_encoder(self.embedding(inputs))) 
+        # (batch_size, max_seq_len, hidden_size)
+
+        # 이 마스크를 어떻게 줄 지가 문제인데 이제.. 흠.. 
+        if self.src_mask == None: 
+            self.src_mask = self.make_mask(self.hidden_size)
+
+        enc_output = self.encoder(embedded, mask=self.src_mask)
+        
+        return enc_output
+
+    def make_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=512):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
