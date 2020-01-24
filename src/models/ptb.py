@@ -11,21 +11,24 @@ class PretrainingBased(nn.Module):
             config.vocab_size, config.embedding_size, config.encoder_hidden_size,
             config.feedforward_hidden_size, config.num_layer, config.num_heads, config.dropout, 
             pretrained_wv_path=config.pretrained_wv_path)
-        # self.decoder = layers.PTBDecoder(
-        #     # 추후 추가 예정인 것들.. 
-        # )
+        self.decoder = layers.PTBDecoder(
+            config.vocab_size, config.embedding_size, config.encoder_hidden_size,
+            config.feedforward_hidden_size, config.num_layer, config.num_heads, config.dropout, 
+            pretrained_wv_path=config.pretrained_wv_path
+        )
 
         if config.tie_embedding:
             self.decoder.embedding = self.decoder.embedding
 
+        self.linear = nn.Linear(config.encoder_hidden_size, config.vocab_size)
     
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask):
         encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
-        decoder_outputs = None #self.decoder(encoder_outputs, target_utterances, target_utterances_length)
+        decoder_outputs = self.decoder(encoder_outputs, input_utterances_mask, target_utterance, target_utterance_mask)
+        outputs = self.linear(decoder_outputs)
 
-
-        return decoder_outputs
+        return outputs
 
     def generate(self):
         pass 

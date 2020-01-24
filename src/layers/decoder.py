@@ -4,8 +4,8 @@ from torch import nn
 from torch.nn import functional as F
 from .rnncells import StackedGRUCell, LSTMSACell
 from .beam_search import Beam
-from utils import to_var, SOS_ID, UNK_ID, EOS_ID
-
+from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
+from encoder import PositionalEncoding
 
 class BaseRNNDecoder(nn.Module):
     def __init__(self):
@@ -256,3 +256,95 @@ class DecoderSARNN(BaseRNNDecoder):
         prediction, final_score, length = beam.backtrack()
 
         return prediction, final_score, length
+
+
+class PTBDecoder(nn.Module):
+    def __init__(self, vocab_size, embedding_size,
+                hidden_size, feedforward_hidden_size=2048, num_layers=12,
+                num_heads=8, dropout=0.0, pretrained_wv_path=None):
+        super(PTBDecoder, self).__init__()
+
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers 
+        self.num_heads = num_heads
+        self.dropout = dropout 
+        self.feedforward_hidden_size = feedforward_hidden_size
+
+        if pretrained_wv_path is None:
+            self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
+        else:
+            with open(pretrained_wv_path, 'rb') as f:
+                weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
+
+            self.embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False)
+            print("Load the wv Done")
+        
+        self.pos_encoder = PositionalEncoding(hidden_size, dropout)
+        self.dropoutLayer = nn.Dropout(dropout)
+
+        decoder_layer = AttentionRoutingLayer(hidden_size, num_heads, dropout, feedforward_hidden_size)
+        decoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
+        self.decoder = nn.TransformerEncoder(decoder_layer, num_layers, decoder_norm)
+
+    def forward(self, encoder_output, target_utterance, target_utterance_mask):
+        # attn_mask (hidden_size, hidden_size)
+        if self.attn_mask == None: 
+            self.attn_mask = self.make_mask(self.hidden_size)
+        
+        embedded = self.dropoutLayer(self.pos_encoder(self.embedding(target_utterance))) # (batch_size, max_seq_len, hidden_size)
+        embedded = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
+
+        dec_output = self.decoder(embedded)
+        dec_output = dec_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
+
+        return dec_output
+
+class AttentionRoutingLayer(nn.Module):
+    def __init__(self, hidden_size, num_heads, dropout, feedforward_hidden_size):
+        self.hidden_size = hidden_size
+        self.feedforward_hidden_size = feedforward_hidden_size
+        self.num_heads = num_heads
+
+        self.OcAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
+        self.OprevAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
+        # Implementation of Feedforward model
+        self.linear1 = nn.Linear(hidden_size, feedforward_hidden_size)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(feedforward_hidden_size, hidden_size)
+
+        self.norm1 = nn.LayerNorm(hidden_size)
+        self.norm2 = nn.LayerNorm(hidden_size)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = F.relu
+    
+    def forward(self, Ec, Eprev, Eprev_mask):
+
+        # attn_mask (hidden_size, hidden_size)
+        if self.attn_mask == None: 
+            self.attn_mask = self.make_mask(self.hidden_size)
+
+        Oc = self.OcAttnLayer(Eprev, Ec, Ec)[0]
+        Oprev = self.OprevAttnLayer(Eprev, Eprev, Eprev, mask=self.attn_mask, key_padding_mask=Eprev_mask)
+
+        Omerge = 2 * Oc + Oprev
+
+        output = Omerge + self.dropout(Eprev)
+        output = self.norm1(output)
+        output2 = self.linear2(self.dropout(self.activation(self.linear1(output))))
+        output = output + self.dropout2(output2)
+        output = self.norm2(output)
+
+        return output
+
+
+
+
+
+    def make_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
