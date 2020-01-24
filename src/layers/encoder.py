@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from utils import to_var, PAD_ID
 import pickle
+import math
 
 
 class BaseRNNEncoder(nn.Module):
@@ -179,8 +180,7 @@ class PTBEncoder(nn.Module):
         
         self.pos_encoder = PositionalEncoding(hidden_size, dropout)
         self.dropoutLayer = nn.Dropout(dropout)
-        encoder_layer = nn.TransformerEncoderLayer(hidden_size, num_heads, 
-                            feedforward_hidden_size, dropout, "relu")
+        encoder_layer = nn.TransformerEncoderLayer(hidden_size, num_heads, feedforward_hidden_size, dropout)
         encoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers, encoder_norm)
 

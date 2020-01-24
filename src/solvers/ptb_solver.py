@@ -10,9 +10,9 @@ import codecs
 import sys
 from .solver import Solver
 
-class SloverPretrainingBased(Solver):
+class SolverPTB(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
-        super(SloverPretrainingBased, self).__init__(config, train_data_loader, eval_data_loader, vocab, is_train, model)
+        super(SolverPTB, self).__init__(config, train_data_loader, eval_data_loader, vocab, is_train, model)
     
     def train(self):
         epoch_loss_history = list()
@@ -29,7 +29,7 @@ class SloverPretrainingBased(Solver):
                           target_utterance_mask,
                           utterance_length) in enumerate(tqdm(self.train_data_loader, ncols=80)):
 
-                target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
+                target_utterance_length = [l for len_list in utterance_length for l in len_list[1:]]
                 
                 input_utterances = to_var(torch.LongTensor(input_utterances))
                 input_utterances_mask = to_var(torch.LongTensor(input_utterances_mask))

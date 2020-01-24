@@ -5,7 +5,8 @@ from torch.nn import functional as F
 from .rnncells import StackedGRUCell, LSTMSACell
 from .beam_search import Beam
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
-from encoder import PositionalEncoding
+from .encoder import PositionalEncoding
+import pickle
 
 class BaseRNNDecoder(nn.Module):
     def __init__(self):
@@ -303,6 +304,7 @@ class PTBDecoder(nn.Module):
 
 class AttentionRoutingLayer(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout, feedforward_hidden_size):
+        super(AttentionRoutingLayer, self).__init__()
         self.hidden_size = hidden_size
         self.feedforward_hidden_size = feedforward_hidden_size
         self.num_heads = num_heads

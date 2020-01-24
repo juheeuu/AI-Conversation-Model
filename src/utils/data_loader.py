@@ -135,7 +135,7 @@ def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, 
     if convs_users is None and not is_ptb_model:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
     elif is_ptb_model:
-        dataset = ConvPTBDataset(convs, utterance_length, vocab)
+        dataset = ConvPTBDataset(convs, utterances_length, vocab)
     else:
         dataset = ConvUserDataset(convs, convs_users, convs_length, utterances_length, vocab)
 

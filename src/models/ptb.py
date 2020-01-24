@@ -3,17 +3,23 @@ import torch.nn as nn
 from utils import to_var, pad
 import layers
 
-class PretrainingBased(nn.Module):
+class PTB(nn.Module):
     def __init__(self, config):
-        super(PretrainingBased, self).__init__()
+        super(PTB, self).__init__()
         self.config = config 
         self.encoder = layers.PTBEncoder(
             config.vocab_size, config.embedding_size, config.encoder_hidden_size,
-            config.feedforward_hidden_size, config.num_layer, config.num_heads, config.dropout, 
+            feedforward_hidden_size=config.feedforward_hidden_size, 
+            num_layers=config.num_layers, 
+            num_heads=config.num_heads, 
+            dropout=config.dropout, 
             pretrained_wv_path=config.pretrained_wv_path)
         self.decoder = layers.PTBDecoder(
             config.vocab_size, config.embedding_size, config.encoder_hidden_size,
-            config.feedforward_hidden_size, config.num_layer, config.num_heads, config.dropout, 
+            feedforward_hidden_size=config.feedforward_hidden_size, 
+            num_layers=config.num_layers, 
+            num_heads=config.num_heads, 
+            dropout=config.dropout, 
             pretrained_wv_path=config.pretrained_wv_path
         )
 

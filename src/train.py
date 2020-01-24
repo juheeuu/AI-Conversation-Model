@@ -30,13 +30,15 @@ if __name__ == '__main__':
                                    convs_length=load_pickle(config.conversations_length_path),
                                    utterances_length=load_pickle(config.utterances_length_path),
                                    vocab=vocab, convs_users=train_users,
-                                   batch_size=config.batch_size)
+                                   batch_size=config.batch_size,
+                                   is_ptb_model=(config.model=="PTB"))
 
     eval_data_loader = get_loader(convs=load_pickle(val_config.convs_path),
                                   convs_length=load_pickle(val_config.conversations_length_path),
                                   utterances_length=load_pickle(val_config.utterances_length_path),
                                   vocab=vocab, shuffle=False, convs_users=eval_users,
-                                  batch_size=val_config.eval_batch_size)
+                                  batch_size=val_config.eval_batch_size,
+                                  is_ptb_model=(config.model=="PTB"))
 
     model_solver = getattr(solvers, "Solver{}".format(config.model))
     solver = model_solver(config, train_data_loader, eval_data_loader, vocab=vocab, is_train=True)
