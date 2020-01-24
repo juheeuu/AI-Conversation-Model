@@ -19,9 +19,9 @@ class PretrainingBased(nn.Module):
             self.decoder.embedding = self.decoder.embedding
 
     
-    def forward(self, input_utterances, target_utterances, target_utterances_length):
-
-        encoder_outputs = self.encoder(input_utterances)
+    def forward(self, input_utterances, input_utterances_mask, 
+                target_utterance, target_utterance_mask):
+        encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
         decoder_outputs = None #self.decoder(encoder_outputs, target_utterances, target_utterances_length)
 
 

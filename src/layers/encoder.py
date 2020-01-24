@@ -184,17 +184,24 @@ class PTBEncoder(nn.Module):
         encoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers, encoder_norm)
 
-    def forward(self, inputs):
+    def forward(self, inputs, inputs_mask):
+        """
+         inputs : (batch_size, max_seq_len, hidden_size)
+         inputs_mask : (batch_size, max_seq_len) BOOL 
+        """
+        # attn_mask (hidden_size, hidden_size)
+        if self.attn_mask == None: 
+            self.attn_mask = self.make_mask(self.hidden_size)
 
-        embedded = self.dropout(self.pos_encoder(self.embedding(inputs))) 
-        # (batch_size, max_seq_len, hidden_size)
+        embedded = self.dropoutLayer(self.pos_encoder(self.embedding(inputs))) # (batch_size, max_seq_len, hidden_size)
 
-        # 이 마스크를 어떻게 줄 지가 문제인데 이제.. 흠.. 
-        if self.src_mask == None: 
-            self.src_mask = self.make_mask(self.hidden_size)
+        embedded = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
+        inputs_mask = inputs_mask.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
 
-        enc_output = self.encoder(embedded, mask=self.src_mask)
-        
+        enc_output = self.encoder(embedded, mask=self.attn_mask, key_padding_mask=inputs_mask)
+        # (max_seq_len, batch_size, hidden_size)
+        enc_output = enc_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
+
         return enc_output
 
     def make_mask(self, sz):
@@ -204,7 +211,6 @@ class PTBEncoder(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-
     def __init__(self, d_model, dropout=0.1, max_len=512):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)

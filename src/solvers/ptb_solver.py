@@ -23,17 +23,27 @@ class SloverPretrainingBased(Solver):
             batch_loss_history = list()
             self.model.train()
             n_total_words = 0
-            for batch_i, (input_utterances, target_utterance, utterances_length) in \
-                    enumerate(tqdm(self.train_data_loader, ncols=80)):
-                
+            for batch_i, (input_utterances,
+                          input_utterances_mask,
+                          target_utterance,
+                          target_utterance_mask,
+                          utterance_length) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+
                 target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
                 
                 input_utterances = to_var(torch.LongTensor(input_utterances))
+                input_utterances_mask = to_var(torch.LongTensor(input_utterances_mask))
                 target_utterance = to_var(torch.LongTensor(target_utterance))
+                target_utterance_mask = to_var(torch.LongTensor(target_utterance_mask))
                 target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
 
                 self.optimizer.zero_grad()
-                utterance_logits = self.model(input_utterances, target_utterance, target_utterance_length)
+                utterance_logits = self.model(
+                    input_utterances, 
+                    input_utterances_mask, 
+                    target_utterance, 
+                    target_utterance_mask
+                )
 
                 batch_loss, n_words = masked_cross_entropy(utterance_logits, target_utterance, target_utterance_length)
 
