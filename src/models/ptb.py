@@ -13,15 +13,18 @@ class PTB(nn.Module):
             num_layers=config.num_layers, 
             num_heads=config.num_heads, 
             dropout=config.dropout, 
-            pretrained_wv_path=config.pretrained_wv_path)
+            pretrained_wv_path=config.pretrained_wv_path,
+            device=config.device
+            )
         self.decoder = layers.PTBDecoder(
             config.vocab_size, config.embedding_size, config.encoder_hidden_size,
             feedforward_hidden_size=config.feedforward_hidden_size, 
             num_layers=config.num_layers, 
             num_heads=config.num_heads, 
             dropout=config.dropout, 
-            pretrained_wv_path=config.pretrained_wv_path
-        )
+            pretrained_wv_path=config.pretrained_wv_path,
+            device=config.device
+            )
 
         if config.tie_embedding:
             self.decoder.embedding = self.decoder.embedding
@@ -31,7 +34,7 @@ class PTB(nn.Module):
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask):
         encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
-        decoder_outputs = self.decoder(encoder_outputs, input_utterances_mask, target_utterance, target_utterance_mask)
+        decoder_outputs = self.decoder(encoder_outputs, target_utterance, target_utterance_mask)
         outputs = self.linear(decoder_outputs)
 
         return outputs

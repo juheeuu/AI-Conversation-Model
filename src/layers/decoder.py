@@ -262,7 +262,7 @@ class DecoderSARNN(BaseRNNDecoder):
 class PTBDecoder(nn.Module):
     def __init__(self, vocab_size, embedding_size,
                 hidden_size, feedforward_hidden_size=2048, num_layers=12,
-                num_heads=8, dropout=0.0, pretrained_wv_path=None):
+                num_heads=8, dropout=0.0, pretrained_wv_path=None, device=None):
         super(PTBDecoder, self).__init__()
 
         self.vocab_size = vocab_size
@@ -272,42 +272,52 @@ class PTBDecoder(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout 
         self.feedforward_hidden_size = feedforward_hidden_size
+        self.device=device
 
-        if pretrained_wv_path is None:
-            self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
-        else:
-            with open(pretrained_wv_path, 'rb') as f:
-                weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
+        self.embedding = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD_ID)
+        # if pretrained_wv_path is None:
+        #     self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
+        # else:
+        #     with open(pretrained_wv_path, 'rb') as f:
+        #         weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
 
-            self.embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False)
-            print("Load the wv Done")
+        #     self.embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False)
+        #     print("Load the wv Done")
         
         self.pos_encoder = PositionalEncoding(hidden_size, dropout)
         self.dropoutLayer = nn.Dropout(dropout)
 
-        decoder_layer = AttentionRoutingLayer(hidden_size, num_heads, dropout, feedforward_hidden_size)
-        decoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
-        self.decoder = nn.TransformerEncoder(decoder_layer, num_layers, decoder_norm)
+        self.decoder_stack = nn.ModuleList([
+            AttentionRoutingLayer(hidden_size, num_heads, dropout, feedforward_hidden_size, device=device)
+            for _ in range(num_layers)])
+
+        self.decoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
 
     def forward(self, encoder_output, target_utterance, target_utterance_mask):
         # attn_mask (hidden_size, hidden_size)
-        if self.attn_mask == None: 
-            self.attn_mask = self.make_mask(self.hidden_size)
         
         embedded = self.dropoutLayer(self.pos_encoder(self.embedding(target_utterance))) # (batch_size, max_seq_len, hidden_size)
         embedded = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
 
-        dec_output = self.decoder(embedded)
-        dec_output = dec_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
+        # dec_output = self.decoder(encoder_output, embedded, target_utterance_mask)
+        # dec_output = dec_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
+
+        for dec_layer in self.decoder_stack:
+            dec_output = dec_layer(encoder_output, embedded, target_utterance_mask)
+
+        dec_output = self.decoder_norm(dec_output)
+        dec_output = dec_output.transpose(0, 1)
 
         return dec_output
 
 class AttentionRoutingLayer(nn.Module):
-    def __init__(self, hidden_size, num_heads, dropout, feedforward_hidden_size):
+    def __init__(self, hidden_size, num_heads, dropout, feedforward_hidden_size, attn_mask=None, device=None):
         super(AttentionRoutingLayer, self).__init__()
         self.hidden_size = hidden_size
         self.feedforward_hidden_size = feedforward_hidden_size
         self.num_heads = num_heads
+        self.device = device
+        self.attn_mask = self.make_mask(self.hidden_size)
 
         self.OcAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
         self.OprevAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
@@ -324,13 +334,8 @@ class AttentionRoutingLayer(nn.Module):
         self.activation = F.relu
     
     def forward(self, Ec, Eprev, Eprev_mask):
-
-        # attn_mask (hidden_size, hidden_size)
-        if self.attn_mask == None: 
-            self.attn_mask = self.make_mask(self.hidden_size)
-
         Oc = self.OcAttnLayer(Eprev, Ec, Ec)[0]
-        Oprev = self.OprevAttnLayer(Eprev, Eprev, Eprev, mask=self.attn_mask, key_padding_mask=Eprev_mask)
+        Oprev = self.OprevAttnLayer(Eprev, Eprev, Eprev, attn_mask=self.attn_mask, key_padding_mask=Eprev_mask)[0]
 
         Omerge = 2 * Oc + Oprev
 
@@ -343,10 +348,8 @@ class AttentionRoutingLayer(nn.Module):
         return output
 
 
-
-
-
     def make_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        mask = torch.FloatTensor(mask).to(self.device)
         return mask

@@ -4,7 +4,7 @@ from utils import Vocab
 import os
 import solvers
 from utils import load_pickle
-
+import torch 
 
 if __name__ == '__main__':
     config = get_config(mode='train')
@@ -28,6 +28,8 @@ if __name__ == '__main__':
     else:
         train_users = None
         eval_users = None
+    
+    config.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
     train_data_loader = get_loader(convs=load_pickle(config.convs_path),
                                    convs_length=load_pickle(config.conversations_length_path),

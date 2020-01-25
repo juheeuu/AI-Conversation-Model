@@ -113,12 +113,16 @@ class ConvPTBDataset(ConvDataset):
         if len(input_utterances) <= SEQ_LEN: 
             input_utterances += ['<pad>' for _ in range(SEQ_LEN - len(input_utterances))]
         else: 
-            input_utterances = input_utterances.reverse()[:SEQ_LEN].reverse()
+            input_utterances.reverse()
+            input_utterances = input_utterances[:SEQ_LEN]
+            input_utterances.reverse()
         
         if len(target_utterance) <= SEQ_LEN: 
             target_utterance  += ['<pad>' for _ in range(SEQ_LEN - len(target_utterance))]
         else:
-            target_utterance = target_utterance.reverse()[:SEQ_LEN].reverse()
+            target_utterance.reverse()
+            target_utterance = target_utterance[:SEQ_LEN]
+            target_utterance.reverse()
             
         input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
         target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
