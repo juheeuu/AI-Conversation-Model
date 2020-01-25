@@ -14,6 +14,9 @@ if __name__ == '__main__':
 
     vocab = Vocab()
     vocab.load(config.word2id_path, config.id2word_path)
+
+    vocab.word2id['<sep>'] = vocab.vocab_size
+    vocab.vocab_size += 1
     print(f'Vocabulary size: {vocab.vocab_size}')
     config.vocab_size = vocab.vocab_size
 

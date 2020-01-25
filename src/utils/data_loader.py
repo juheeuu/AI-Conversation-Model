@@ -99,28 +99,32 @@ class ConvPTBDataset(ConvDataset):
         input_utterances = utterances[:-1]
         utterance_length = self.utterances_length[index]
 
-        input_utterances_str = ''
+        input_utterances_list = []
         for utter in input_utterances: 
-            input_utterances_str = ' '.join(utter).replace(' <pad> ', '') + ' <sep>'
-        input_utterances_str += ' <eos>'
+            for i, tok in enumerate(utter): 
+                if tok == '<eos>':
+                    input_utterances_list += utter[:i+1]
+                    input_utterances_list.append('<sep>')
         
-        input_utterances = input_utterances_str.split()
+        input_utterances_list.pop()
+        input_utterances = input_utterances_list
 
         SEQ_LEN = 512
         if len(input_utterances) <= SEQ_LEN: 
-            input_utterances += ['<pad>' for _ in range(len(input_utterances) - 512)]
+            input_utterances += ['<pad>' for _ in range(SEQ_LEN - len(input_utterances))]
         else: 
-            input_utterances = input_utterances.reverse()[:512].reverse()
+            input_utterances = input_utterances.reverse()[:SEQ_LEN].reverse()
         
         if len(target_utterance) <= SEQ_LEN: 
-            target_utterance  += ['<pad>' for _ in range(len(target_utterance) - 512)]
+            target_utterance  += ['<pad>' for _ in range(SEQ_LEN - len(target_utterance))]
         else:
-            target_utterance = target_utterance.reverse()[:512].reverse()
+            target_utterance = target_utterance.reverse()[:SEQ_LEN].reverse()
             
         input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
         target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
-        input_utterances = self.sent2id(input_utterances)
-        target_utterance = self.sent2id(target_utterance)
+
+        input_utterances = self.vocab.sent2id(input_utterances)
+        target_utterance = self.vocab.sent2id(target_utterance)
 
         return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask, utterance_length
 

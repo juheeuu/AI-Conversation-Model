@@ -31,10 +31,10 @@ class Vocab(object):
         self.word2id.update({
             PAD_TOKEN: PAD_ID, UNK_TOKEN: UNK_ID,
             SOS_TOKEN: SOS_ID, EOS_TOKEN: EOS_ID,
-            SEP_TOKEN: SEP_ID
+            SEP_TOKEN: SEP_ID,
         })
 
-        vocab_size = 4
+        vocab_size = 5
         min_freq = max(min_freq, 1)
 
         freqdist = self.freqdist.copy()
