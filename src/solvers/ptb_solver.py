@@ -9,6 +9,7 @@ from math import isnan
 import codecs
 import sys
 from .solver import Solver
+import torch.nn.functional as F
 
 class SolverPTB(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
@@ -20,8 +21,10 @@ class SolverPTB(Solver):
 
         self.config.n_gpu = torch.cuda.device_count()
 
-        if self.config.n_gpu > 1:
-            self.model = torch.nn.DataParallel(self.model).to(self.config.device)
+        self.model = self.model.to(self.config.device)
+
+        # if self.config.n_gpu > 1:
+        #     self.model = torch.nn.DataParallel(self.model).to(self.config.device)
 
         for epoch_i in range(self.epoch_i, self.config.n_epoch):
             self.epoch_i = epoch_i 
@@ -52,30 +55,30 @@ class SolverPTB(Solver):
 
                 # masked cross entropy 
                 loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
-                active_loss = target_utterance_mask.view(-1) != True 
 
+                active_loss = target_utterance_mask.view(-1) != True 
+                
                 utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
                 target_utterance = target_utterance.view(-1)
+
 
                 batch_loss = loss_fn(utterance_logits, target_utterance)
 
                 target_utterance = target_utterance[active_loss]
                 n_words = target_utterance.size(0)
 
-                if self.config.n_gpu > 1: batch_loss = batch_loss.mean() 
-
                 assert not isnan(batch_loss.item())
                 batch_loss_history.append(batch_loss.item())
                 n_total_words += n_words
 
                 if batch_i % self.config.print_every == 0:
-                    tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item()/ n_words:.3f}')
+                    tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
 
                 batch_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.clip)
                 self.optimizer.step()
 
-            epoch_loss = np.sum(batch_loss_history) / n_total_words
+            epoch_loss = np.sum(batch_loss_history)
             epoch_loss_history.append(epoch_loss)
             self.epoch_loss = epoch_loss
 

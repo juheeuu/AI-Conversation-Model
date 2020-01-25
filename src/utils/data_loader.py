@@ -127,6 +127,7 @@ class ConvPTBDataset(ConvDataset):
         input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
         target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
 
+
         input_utterances = self.vocab.sent2id(input_utterances)
         target_utterance = self.vocab.sent2id(target_utterance)
 
