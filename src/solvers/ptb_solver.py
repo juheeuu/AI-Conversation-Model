@@ -50,15 +50,16 @@ class SolverPTB(Solver):
                     target_utterance_mask
                 )
 
-
                 # masked cross entropy 
-                loss_fn = torch.nn.CrossEntropyLoss()
+                loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+                active_loss = target_utterance_mask.view(-1) != True 
 
-                active_loss = target_utterance_mask.view(-1) == True 
-                active_logits = utterance_logits.view(-1, utterance_logits.size(2))[active_loss]
-                target_utterance = target_utterance.view(-1)[active_loss]
+                utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
+                target_utterance = target_utterance.view(-1)
 
-                batch_loss = loss_fn(active_logits, target_utterance)
+                batch_loss = loss_fn(utterance_logits, target_utterance)
+
+                target_utterance = target_utterance[active_loss]
                 n_words = target_utterance.size(0)
 
                 if self.config.n_gpu > 1: batch_loss = batch_loss.mean() 
