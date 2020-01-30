@@ -97,7 +97,6 @@ class ConvPTBDataset(ConvDataset):
         utterances = self.convs[index]
         target_utterance = utterances[-1]
         input_utterances = utterances[:-1]
-        utterance_length = self.utterances_length[index]
 
         input_utterances_list = []
         for utter in input_utterances: 
@@ -131,7 +130,7 @@ class ConvPTBDataset(ConvDataset):
         input_utterances = self.vocab.sent2id(input_utterances)
         target_utterance = self.vocab.sent2id(target_utterance)
 
-        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask, utterance_length
+        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask
 
 
 

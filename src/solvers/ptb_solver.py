@@ -18,9 +18,10 @@ class SolverPTB(Solver):
     def train(self):
         epoch_loss_history = list()
         min_validation_loss = sys.float_info.max
+        patience_cnt = self.config.patience
+        step = 0
 
         self.config.n_gpu = torch.cuda.device_count()
-
         self.model = self.model.to(self.config.device)
 
         # if self.config.n_gpu > 1:
@@ -34,16 +35,12 @@ class SolverPTB(Solver):
             for batch_i, (input_utterances,
                           input_utterances_mask,
                           target_utterance,
-                          target_utterance_mask,
-                          utterance_length) in enumerate(tqdm(self.train_data_loader, ncols=80)):
-
-                target_utterance_length = [l for len_list in utterance_length for l in len_list[1:]]
-                
+                          target_utterance_mask) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+    
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
-                target_utterance_length = torch.LongTensor(target_utterance_length).to(self.config.device)
 
                 self.optimizer.zero_grad()
                 utterance_logits = self.model(
@@ -55,15 +52,10 @@ class SolverPTB(Solver):
 
                 # masked cross entropy 
                 loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
-
                 active_loss = target_utterance_mask.view(-1) != True 
-                
                 utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
                 target_utterance = target_utterance.view(-1)
-
-
                 batch_loss = loss_fn(utterance_logits, target_utterance)
-
                 target_utterance = target_utterance[active_loss]
                 n_words = target_utterance.size(0)
 
@@ -71,14 +63,17 @@ class SolverPTB(Solver):
                 batch_loss_history.append(batch_loss.item())
                 n_total_words += n_words
 
+                step += 1
+
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
+                    self.writer.update_loss(batch_loss.item(), step, 'train_loss')
 
                 batch_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.clip)
                 self.optimizer.step()
 
-            epoch_loss = np.sum(batch_loss_history)
+            epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
             epoch_loss_history.append(epoch_loss)
             self.epoch_loss = epoch_loss
 
@@ -90,8 +85,8 @@ class SolverPTB(Solver):
             print('\n<Validation>...')
             self.validation_loss = self.evaluate()
 
-            if epoch_i % self.config.plot_every_epoch == 0:
-                self.write_summary(epoch_i)
+            # if epoch_i % self.config.plot_every_epoch == 0:
+            #     self.write_summary(epoch_i)
 
             if min_validation_loss > self.validation_loss:
                 min_validation_loss = self.validation_loss
@@ -113,26 +108,35 @@ class SolverPTB(Solver):
         batch_loss_history = []
         n_total_words = 0
 
-        for batch_i, (input_utterances, target_utterance, utterances_length) in \
-            enumerate(tqdm(self.train_data_loader, ncols=80)):
+        # beam search 로 바꾸기 
 
-            target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
+        for batch_i, (input_utterances,
+                      input_utterances_mask,
+                      target_utterance,
+                      target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
-                input_utterances = to_var(torch.LongTensor(input_utterances))
-                target_utterance = to_var(torch.LongTensor(target_utterance))
-                target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
+                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
+                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
+                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
 
-            self.optimizer.zero_grad()
-            utterance_logits = self.model(input_utterances, target_utterance_length, target_utterance_length)
+            utterance_logits = self.model.generate(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
 
-            batch_loss, n_words = masked_cross_entropy(utterance_logits, target_utterances, target_utterance_length)
+            # masked cross entropy 
+            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+            active_loss = target_utterance_mask.view(-1) != True 
+            utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
+            target_utterance = target_utterance.view(-1)
+            batch_loss = loss_fn(utterance_logits, target_utterance)
+            target_utterance = target_utterance[active_loss]
+            n_words = target_utterance.size(0)
 
             assert not isnan(batch_loss.item())
             batch_loss_history.append(batch_loss.item())
-            n_total_words += n_words.item()
+            n_total_words += n_words
         
-        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
         print(f'Validation loss: {epoch_loss:.3f}\n')
 
         return epoch_loss
@@ -141,26 +145,33 @@ class SolverPTB(Solver):
         self.model.eval()
         batch_loss_history = []
         n_total_words = 0
-        for batch_i, (input_utterances, target_utterance, utterances_length) in \
-             enumerate(tqdm(self.train_data_loader, ncols=80)):
-            
-            target_utterance_length = [l for len_list in utterances_length for l in len_list[1:]]
+        for batch_i, (input_utterances,
+                      input_utterances_mask,
+                      target_utterance,
+                      target_utterance_mask) in enumerate(tqdm(self.train_data_loader, ncols=80)):
                 
             with torch.no_grad():
-                input_utterances = to_var(torch.LongTensor(input_utterances))
-                target_utterance = to_var(torch.LongTensor(target_utterance))
-                target_utterance_length = to_var(torch.LongTensor(target_utterance_length))
+                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
+                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
+                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
 
-            self.optimizer.zero_grad()
-            utterances_logits = self.model(input_utterances, target_utterance, target_utterance_length)
+            utterance_logits = self.model(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
 
-            batch_loss, n_words = masked_cross_entropy(utterances_logits, target_utterance, target_utterance_length)
+            # masked cross entropy 
+            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+            active_loss = target_utterance_mask.view(-1) != True 
+            utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
+            target_utterance = target_utterance.view(-1)
+            batch_loss = loss_fn(utterance_logits, target_utterance)
+            target_utterance = target_utterance[active_loss]
+            n_words = target_utterance.size(0)
 
             assert not isnan(batch_loss.item())
             batch_loss_history.append(batch_loss.item())
-            n_total_words += n_words.item()
+            n_total_words += n_words
 
-        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
         
         print(f'Number of words: {n_total_words}')
         print(f'Bits per word: {epoch_loss:.3f}')

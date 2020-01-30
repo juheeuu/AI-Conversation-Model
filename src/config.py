@@ -94,6 +94,7 @@ def get_config(parse=True, **optional_kwargs):
                         help='if false, use beam search for decoding')
     parser.add_argument('--temperature', type=float, default=1.0)
     parser.add_argument('--beam_size', type=int, default=1)
+    parser.add_argument('--max_seq_len', type=int, default=512)
 
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
