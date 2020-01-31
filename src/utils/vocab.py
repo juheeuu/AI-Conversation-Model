@@ -57,7 +57,7 @@ class Vocab(object):
     def __len__(self):
         return len(self.id2word)
 
-    def load(self, word2id_path=None, id2word_path=None):
+    def load(self, word2id_path=None, id2word_path=None, ptb=False):
         if word2id_path:
             with open(word2id_path, 'rb') as f:
                 word2id = pickle.load(f)
@@ -69,6 +69,11 @@ class Vocab(object):
             with open(id2word_path, 'rb') as f:
                 id2word = pickle.load(f)
             self.id2word = id2word
+
+        if ptb:
+            self.word2id['<sep>'] = self.vocab_size 
+            self.id2word[self.vocab_size] = '<sep>'
+            self.vocab_size += 1 
 
     def add_word(self, word):
         assert isinstance(word, str), 'Input should be str'

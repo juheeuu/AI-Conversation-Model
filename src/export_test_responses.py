@@ -1,13 +1,13 @@
 from config import get_config
 from utils import Vocab, get_loader, load_pickle
 import solvers
-
+import torch
 
 def main():
     config = get_config(mode='test')
 
     vocab = Vocab()
-    vocab.load(config.word2id_path, config.id2word_path)
+    vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
     print(f'Vocabulary size: {vocab.vocab_size}')
     config.vocab_size = vocab.vocab_size
 
@@ -21,7 +21,8 @@ def main():
     data_loader = get_loader(convs=load_pickle(config.convs_path),
                              convs_length=load_pickle(config.conversations_length_path),
                              utterances_length=load_pickle(config.utterances_length_path),
-                             vocab=vocab, batch_size=config.batch_size, shuffle=False, convs_users=test_users)
+                             vocab=vocab, batch_size=config.batch_size, shuffle=False, convs_users=test_users,
+                             is_ptb_model=(config.model=="PTB"))
 
     model_solver = getattr(solvers, "Solver{}".format(config.model))
     test_solver = model_solver(config, None, data_loader, vocab=vocab, is_train=False)

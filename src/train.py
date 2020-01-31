@@ -13,12 +13,9 @@ if __name__ == '__main__':
         print(config, file=f)
 
     vocab = Vocab()
-    vocab.load(config.word2id_path, config.id2word_path)
+    vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
 
-    vocab.word2id['<sep>'] = vocab.vocab_size
-    vocab.vocab_size += 1
     print(f'Vocabulary size: {vocab.vocab_size}')
-    config.vocab_size = vocab.vocab_size
 
     if config.users:
         train_users = load_pickle(config.convs_users_path)
@@ -29,7 +26,6 @@ if __name__ == '__main__':
         train_users = None
         eval_users = None
     
-    config.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
     train_data_loader = get_loader(convs=load_pickle(config.convs_path),
                                    convs_length=load_pickle(config.conversations_length_path),

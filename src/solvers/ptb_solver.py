@@ -57,10 +57,11 @@ class SolverPTB(Solver):
                 target_utterance = target_utterance.view(-1)
                 batch_loss = loss_fn(utterance_logits, target_utterance)
                 target_utterance = target_utterance[active_loss]
+
                 n_words = target_utterance.size(0)
 
                 assert not isnan(batch_loss.item())
-                batch_loss_history.append(batch_loss.item())
+                batch_loss_history.append(batch_loss.item() * n_words)
                 n_total_words += n_words
 
                 step += 1
@@ -73,7 +74,7 @@ class SolverPTB(Solver):
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.clip)
                 self.optimizer.step()
 
-            epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
+            epoch_loss = np.sum(batch_loss_history) / n_total_words
             epoch_loss_history.append(epoch_loss)
             self.epoch_loss = epoch_loss
 
@@ -85,8 +86,8 @@ class SolverPTB(Solver):
             print('\n<Validation>...')
             self.validation_loss = self.evaluate()
 
-            # if epoch_i % self.config.plot_every_epoch == 0:
-            #     self.write_summary(epoch_i)
+            if epoch_i % self.config.plot_every_epoch == 0:
+                self.write_summary(epoch_i)
 
             if min_validation_loss > self.validation_loss:
                 min_validation_loss = self.validation_loss
@@ -108,47 +109,10 @@ class SolverPTB(Solver):
         batch_loss_history = []
         n_total_words = 0
 
-        # beam search 로 바꾸기 
-
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       target_utterance,
                       target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
-                
-            with torch.no_grad():
-                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
-                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
-                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
-                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
-
-            utterance_logits = self.model.generate(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
-
-            # masked cross entropy 
-            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
-            active_loss = target_utterance_mask.view(-1) != True 
-            utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
-            target_utterance = target_utterance.view(-1)
-            batch_loss = loss_fn(utterance_logits, target_utterance)
-            target_utterance = target_utterance[active_loss]
-            n_words = target_utterance.size(0)
-
-            assert not isnan(batch_loss.item())
-            batch_loss_history.append(batch_loss.item())
-            n_total_words += n_words
-        
-        epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
-        print(f'Validation loss: {epoch_loss:.3f}\n')
-
-        return epoch_loss
-
-    def test(self):
-        self.model.eval()
-        batch_loss_history = []
-        n_total_words = 0
-        for batch_i, (input_utterances,
-                      input_utterances_mask,
-                      target_utterance,
-                      target_utterance_mask) in enumerate(tqdm(self.train_data_loader, ncols=80)):
                 
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
@@ -168,10 +132,45 @@ class SolverPTB(Solver):
             n_words = target_utterance.size(0)
 
             assert not isnan(batch_loss.item())
-            batch_loss_history.append(batch_loss.item())
+            batch_loss_history.append(batch_loss.item() * n_words)
+            n_total_words += n_words
+        
+        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        print(f'Validation loss: {epoch_loss:.3f}\n')
+
+        return epoch_loss
+
+    def test(self):
+        self.model.eval()
+        batch_loss_history = []
+        n_total_words = 0
+        for batch_i, (input_utterances,
+                      input_utterances_mask,
+                      target_utterance,
+                      target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                
+            with torch.no_grad():
+                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
+                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
+                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
+
+            utterance_logits = self.model(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
+
+            # masked cross entropy 
+            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+            active_loss = target_utterance_mask.view(-1) != True 
+            utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
+            target_utterance = target_utterance.view(-1)
+            batch_loss = loss_fn(utterance_logits, target_utterance)
+            target_utterance = target_utterance[active_loss]
+            n_words = target_utterance.size(0)
+
+            assert not isnan(batch_loss.item())
+            batch_loss_history.append(batch_loss.item() * n_words)
             n_total_words += n_words
 
-        epoch_loss = np.sum(batch_loss_history) / len(batch_loss_history)
+        epoch_loss = np.sum(batch_loss_history) / n_total_words
         
         print(f'Number of words: {n_total_words}')
         print(f'Bits per word: {epoch_loss:.3f}')
@@ -180,6 +179,54 @@ class SolverPTB(Solver):
 
         return word_perplexity
 
-    def export_samples(self, beam_size=5):
-        pass
+    def export_samples(self, beam_size=4):
+        self.model.config.beam_size = beam_size
+        self.model.eval()
+        n_sample_step = self.config.n_sample_step
+        context_history = list()
+        sample_history = list()
+        ground_truth_history = list()
+
+        for batch_i, (input_utterances,
+                      input_utterances_mask,
+                      target_utterance,
+                      target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+
+            context_history.append(input_utterances)
+            with torch.no_grad():
+                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
+                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+            
+            all_samples = self.model.generate(input_utterances, input_utterances_mask)
+
+            all_samples = all_samples.data.cpu().numpy().tolist()
+            sample_history.append(all_samples)
+            ground_truth_history.append(target_utterance)
+
+        
+        target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,
+                                                                 beam_size, self.epoch_i)
+        print("Writing candidates into file {}".format(target_file_name))
+        conv_idx = 0 
+        with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
+            for contexts, samples, ground_truths in tqdm(zip(context_history, sample_history, ground_truth_history),
+                                                         total=len(context_history), ncols=80):
+                for one_conv_contexts, one_conv_samples, one_conv_ground_truth in zip(contexts, samples, ground_truths):
+                    print("Conversation Context {}".format(conv_idx), file=output_f)
+                    print(self.vocab.decode(one_conv_contexts), file=output_f)
+                    print(self.vocab.decode(one_conv_samples), file=output_f)
+                    print(self.vocab.decode(one_conv_ground_truth), file=output_f)
+                    conv_idx += 1
+
+        return conv_idx
+
+        
+
+
+
+
+
+                
+
+
 

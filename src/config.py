@@ -6,6 +6,7 @@ import pprint
 from torch import optim
 import torch.nn as nn
 from layers.rnncells import StackedGRUCell
+import torch 
 
 optimizer_dict = {'RMSprop': optim.RMSprop, 'Adam': optim.Adam}
 
@@ -69,6 +70,11 @@ class Config(object):
         else:
             self.pretrained_uv_path = None
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        
+        
+
     def __str__(self):
         """Pretty-print configurations in alphabetical order"""
         config_str = 'Configurations\n'
@@ -93,14 +99,14 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--sample', type=str2bool, default=False,
                         help='if false, use beam search for decoding')
     parser.add_argument('--temperature', type=float, default=1.0)
-    parser.add_argument('--beam_size', type=int, default=1)
+    parser.add_argument('--beam_size', type=int, default=2)
     parser.add_argument('--max_seq_len', type=int, default=512)
 
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
     parser.add_argument('--rnncell', type=str, default='gru')
     parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--embedding_size', type=int, default=300)
+    parser.add_argument('--embedding_size', type=int, default=512)
     parser.add_argument('--tie_embedding', type=str2bool, default=True)
     parser.add_argument('--encoder_hidden_size', type=int, default=512)
     parser.add_argument('--bidirectional', type=str2bool, default=True)

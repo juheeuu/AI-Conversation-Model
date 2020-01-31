@@ -44,8 +44,7 @@ class PTB(nn.Module):
 
         return outputs
 
-    def generate(self, input_utterances, input_utterances_mask, 
-                target_utterance, target_utterance_mask):
+    def generate(self, input_utterances, input_utterances_mask):
 
         """
         Generate the response based on the input utterances 
@@ -58,21 +57,20 @@ class PTB(nn.Module):
         batch_size = input_utterances.size(0)
         beam_size = self.config.beam_size
         max_seq_len = self.config.max_seq_len
-        vocab = self.config.vocab_size
+        vocab_size = self.config.vocab_size
 
         # start with SOS TOKEN
-        init_seq = [SOS_ID] #+ [PAD_ID] * (max_seq_len - 1) 
-        init_mask = [False] + [True for _ in range(max_seq_len - 1)]
+        init_seq = [SOS_ID]
 
-         = 1
+        cur_len = 1
 
         input_ids = torch.LongTensor(batch_size * init_seq).to(self.config.device)
-        input_ids = input_ids.unsqueeze(0).unsqueeze(1).expand(batch_size, beam_size, cur_len)
+        input_ids = input_ids.unsqueeze(-1).unsqueeze(-1).expand(batch_size, beam_size, cur_len)
         input_ids = input_ids.contiguous().view(batch_size * beam_size, cur_len) 
 
         # TODO:
         generated_hyps = [
-            BeamHypotheses(num_beams, max_seq_len, early_stopping=False) for _ in range(batch_size)
+            BeamHypotheses(beam_size, max_seq_len, early_stopping=False) for _ in range(batch_size)
         ]
 
         # is_done method
@@ -83,15 +81,12 @@ class PTB(nn.Module):
         beam_scores[:, 1:] = -1e9
         beam_scores = beam_scores.view(-1)  # shape (batch_size * beam_size,)
 
-        # cache compute states
-        past = None
-
         # done sentences
         done = [False for _ in range(batch_size)]
 
         while cur_len < max_seq_len: 
-            outputs = self.linear(self.decoder(encoder_outputs, input_ids)) # (batch_size * beam_size, cur_len, vocab_size)
-            scores = outputs[0][:,-1,:] # (batch_size * beam_size, vocab_size)
+            outputs = self.linear(self.decoder(encoder_outputs, input_ids, generate=True)) # (batch_size * beam_size, cur_len, vocab_size)
+            scores = outputs[:,-1,:] # (batch_size * beam_size, vocab_size)
 
             scores = F.log_softmax(scores, dim=-1) # (batch_size * beam_size, vocab_size)
             _scores = scores + beam_scores[:, None].expand_as(scores) # (batch_size * beam_size, vocab_size)
@@ -123,7 +118,7 @@ class PTB(nn.Module):
                             input_ids[batch_ex * beam_size + beam_id, :cur_len].clone(), score.item()
                         )
                     else:
-                        next_sent_beam.append(score, word_id, batch_ex * beam_size + beam_id)
+                        next_sent_beam.append((score, word_id, batch_ex * beam_size + beam_id))
                     
                     # beam for next sentence is full...
                     if len(next_sent_beam) == beam_size:
@@ -136,6 +131,7 @@ class PTB(nn.Module):
                     next_sent_beam = [(0, PAD_ID, 0)] * beam_size # pad the batch 
                 next_batch_beam.extend(next_sent_beam)
                 assert len(next_batch_beam) == beam_size * (batch_ex + 1)
+
 
             # sanity check / prepare next batch
             assert len(next_batch_beam) == batch_size * beam_size
@@ -155,9 +151,12 @@ class PTB(nn.Module):
         tgt_len = input_ids.new(batch_size)
         best = []
 
+        batch_loss = 0.0
+
         for i, hypothesis in enumerate(generated_hyps):
-            best_hyp = max(hypotheses.hyp, key=lambda x: x[0])[1]
-            tgt_len[i] = len(best_hyp) + 1  # +1 for the <EOS> symbol
+            seq_loss, best_hyp = max(hypothesis.hyp, key=lambda x: x[0])
+            tgt_len[i] = len(best_hyp) + 1  # +1 for the <EOS> symbol\
+            batch_loss += seq_loss
             best.append(best_hyp)
         
         # generate target batch
@@ -171,6 +170,48 @@ class PTB(nn.Module):
 
 
 
+class BeamHypotheses(object):
+    def __init__(self, n_hyp, max_length, early_stopping):
+        """
+        Initialize n-best list of hypotheses.
+        """
+        self.max_length = max_length - 1  # ignoring bos_token
+        self.early_stopping = early_stopping
+        self.n_hyp = n_hyp
+        self.hyp = []
+        self.worst_score = 1e9
+
+    def __len__(self):
+        """
+        Number of hypotheses in the list.
+        """
+        return len(self.hyp)
+
+    def add(self, hyp, sum_logprobs):
+        """
+        Add a new hypothesis to the list.
+        """
+        score = sum_logprobs / len(hyp)
+        if len(self) < self.n_hyp or score > self.worst_score:
+            self.hyp.append((score, hyp))
+            if len(self) > self.n_hyp:
+                sorted_scores = sorted([(s, idx) for idx, (s, _) in enumerate(self.hyp)])
+                del self.hyp[sorted_scores[0][1]]
+                self.worst_score = sorted_scores[1][0]
+            else:
+                self.worst_score = min(score, self.worst_score)
+
+    def is_done(self, best_sum_logprobs):
+        """
+        If there are enough hypotheses and that none of the hypotheses being generated
+        can become better than the worst one in the heap, then we are done with this sentence.
+        """
+        if len(self) < self.n_hyp:
+            return False
+        elif self.early_stopping:
+            return True
+        else:
+            return self.worst_score >= best_sum_logprobs / self.max_length
 
 
 
@@ -178,29 +219,7 @@ class PTB(nn.Module):
 
 
 
- 
 
 
 
-        score = torch.ones(batch_size * self.config.beam_size) * -float('inf')
-        score.index_fill_(0, torch.arange)
-
-
-
-        for i in range(self.max_seq_len): 
-            decoder_outputs = self.decoder(encoder_outputs, x, mask)
-            outputs = self.linear(decoder_outputs)
-
-            # 마지막이 EOS TOKEN이면 그만 얘를 각 batch 마다 어떻게 돌리지 ? 
-
-            print(outputs.shape)
-            print(outputs[0])
-            outputs = F.softmax(outputs, dim=-1)
-            print(outputs.shape)
-            print(outputs[0])
-            exit()
-
-            return outputs
-    
-        
 
