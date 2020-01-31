@@ -107,30 +107,31 @@ class ConvPTBDataset(ConvDataset):
         
         input_utterances_list.pop()
         input_utterances = input_utterances_list
+        input_utterances = self.set_padding(input_utterances)
 
-        SEQ_LEN = 512
-        if len(input_utterances) <= SEQ_LEN: 
-            input_utterances += ['<pad>' for _ in range(SEQ_LEN - len(input_utterances))]
-        else: 
-            input_utterances.reverse()
-            input_utterances = input_utterances[:SEQ_LEN]
-            input_utterances.reverse()
+        ground_truth_target_utterance = target_utterance
+        ground_truth_target_utterance = self.set_padding(ground_truth_target_utterance)
         
-        if len(target_utterance) <= SEQ_LEN: 
-            target_utterance  += ['<pad>' for _ in range(SEQ_LEN - len(target_utterance))]
-        else:
-            target_utterance.reverse()
-            target_utterance = target_utterance[:SEQ_LEN]
-            target_utterance.reverse()
+        target_utterance = ['<sos>'] + target_utterance
+        target_utterance = self.set_padding(target_utterance)
             
         input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
         target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
 
-
         input_utterances = self.vocab.sent2id(input_utterances)
         target_utterance = self.vocab.sent2id(target_utterance)
+        ground_truth_target_utterance = self.vocab.sent2id(ground_truth_target_utterance)
 
-        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask
+        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask, ground_truth_target_utterance
+    
+    def set_padding(self, utterance, max_seq_len=512):
+        if len(utterance) <= max_seq_len:
+            utterance = utterance + ['<pad>' for _ in range(max_seq_len - len(utterance))]
+        else:
+            utterance.reverse()
+            utterance = utterance[:max_seq_len]
+            utterance.reverse()
+        return utterance
 
 
 

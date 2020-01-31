@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
     vocab = Vocab()
     vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
+    config.vocab_size = vocab.vocab_size
 
     print(f'Vocabulary size: {vocab.vocab_size}')
 
