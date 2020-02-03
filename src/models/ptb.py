@@ -34,14 +34,14 @@ class PTB(nn.Module):
             max_seq_len=config.max_seq_len
             )
 
-        if config.tie_embedding:
-            self.decoder.embedding = self.encoder.embedding
-
         self.linear = nn.Linear(config.encoder_hidden_size, config.vocab_size)
 
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+        
+        if config.tie_embedding:
+            self.decoder.embedding.weight = self.encoder.embedding.weight
     
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask):

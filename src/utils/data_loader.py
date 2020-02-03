@@ -1,5 +1,7 @@
 from torch.utils.data import Dataset, DataLoader
-
+import pickle
+import logging
+import sentencepiece as spm
 
 class ConvDataset(Dataset):
     def __init__(self, convs, convs_length, utterances_length, vocab):
@@ -151,3 +153,39 @@ def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, 
     data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
 
     return data_loader
+
+
+class LMDataSet(Dataset):
+    def __init__(self, tokenizer, file_path: str, cached_path=None):
+
+        if os.path.exists(cached_path):
+            logger.info("Loading features from cached file %s", cached_path)
+            with open(cached_path, "rb") as fb: 
+                self.examples = pickle.load(fb)
+        else: 
+            logger.info("Creating features from dataset file at %s", file_path)
+
+            self.examples = []
+
+            with open(file_path, encoding="utf-8") as f: 
+                text = f.readlines()
+                for line in text: 
+                    pass
+
+            
+
+
+
+
+def get_lm_loader(data_dir, spm_model):
+
+    assert os.path.exists(data_dir)
+    assert os.path.exists(spm_model)
+
+    tokenizer = spm.SentencePieceProcessor()
+    tokenizer.Load(spm_model)
+
+    file_path = data_dir
+    cached_path = data_dir
+
+    return LMDataSet(tokenizer, file_path, cached_path)

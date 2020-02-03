@@ -73,7 +73,6 @@ class Config(object):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         
-        
 
     def __str__(self):
         """Pretty-print configurations in alphabetical order"""
@@ -142,6 +141,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--data_name', type=str, default='tc_10_15')
     parser.add_argument('--pretrained_wv', type=str2bool, default=True)
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
+    parser.add_argument('--data', type=str)
 
     if parse:
         kwargs = parser.parse_args()

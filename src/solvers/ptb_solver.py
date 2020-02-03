@@ -27,7 +27,13 @@ class SolverPTB(Solver):
         t_total = len(self.train_data_loader) * self.config.n_epoch
         cur_step = 0
 
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.learning_rate)
+        no_decay = ['bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
+            {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+
+        self.optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.config.learning_rate)
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer, num_warmup_steps=self.config.warmup_steps, num_training_steps=t_total
         )
@@ -55,6 +61,8 @@ class SolverPTB(Solver):
                 ground_truth_target_utterance = torch.LongTensor(ground_truth_target_utterance).to(self.config.device)
 
                 self.optimizer.zero_grad()
+                self.model.zero_grad()
+
                 utterance_logits = self.model(
                     input_utterances, 
                     input_utterances_mask, 
@@ -82,6 +90,7 @@ class SolverPTB(Solver):
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
                     self.writer.add_scalar('batch_train_loss', batch_loss.item(), cur_step)
+                    self.writer.add_scalar('learning_rate', self.scheduler.get_lr()[0], cur_step)
                     print(cur_step)
 
 
