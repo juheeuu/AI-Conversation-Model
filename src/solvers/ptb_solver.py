@@ -81,7 +81,7 @@ class SolverPTB(Solver):
 
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
-                    self.writer.add_scalar('train_loss', batch_loss.item(), cur_step)
+                    self.writer.add_scalar('batch_train_loss', batch_loss.item(), cur_step)
                     print(cur_step)
 
 
@@ -127,9 +127,6 @@ class SolverPTB(Solver):
         batch_loss_history = []
         n_total_words = 0
 
-        if self.config.n_gpu > 1:
-            self.model = torch.nn.DataParallel(self.model)
-
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       target_utterance,
@@ -142,7 +139,6 @@ class SolverPTB(Solver):
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
                 ground_truth_target_utterance = torch.LongTensor(ground_truth_target_utterance).to(self.config.device)
-
 
             utterance_logits = self.model(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
 
