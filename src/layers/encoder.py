@@ -159,7 +159,7 @@ class ContextRNN(BaseRNNEncoder):
 class PTBEncoder(nn.Module):
     def __init__(self, vocab_size, embedding_size,
                  hidden_size, feedforward_hidden_size=2048, num_layers=12,
-                 num_heads=8, dropout=0.0, pretrained_wv_path=None, attn_mask=None, device=None):
+                 num_heads=8, dropout=0.0, pretrained_wv_path=None, device=None):
         super(PTBEncoder, self).__init__()
         
         self.vocab_size = vocab_size
@@ -169,7 +169,6 @@ class PTBEncoder(nn.Module):
         self.dropout = dropout 
         self.feedforward_hidden_size = feedforward_hidden_size
         self.device = device
-        self.attn_mask = self.make_mask(self.hidden_size)
 
         self.embedding = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD_ID)
 
@@ -189,7 +188,7 @@ class PTBEncoder(nn.Module):
         encoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers, encoder_norm)
 
-    def forward(self, inputs, inputs_mask):
+    def forward(self, inputs, inputs_mask, attn_mask=None):
         """
          inputs : (batch_size, max_seq_len)
          inputs_mask : (batch_size, max_seq_len) BOOL 
@@ -198,17 +197,11 @@ class PTBEncoder(nn.Module):
 
         inputs = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
 
-        enc_output = self.encoder(inputs, mask=self.attn_mask, src_key_padding_mask=inputs_mask)
+        enc_output = self.encoder(inputs, mask=attn_mask, src_key_padding_mask=inputs_mask)
         # (max_seq_len, batch_size, hidden_size)
         enc_output = enc_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
 
         return enc_output
-
-    def make_mask(self, sz):
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        mask = torch.FloatTensor(mask).to(self.device)
-        return mask
 
 
 class PositionalEncoding(nn.Module):

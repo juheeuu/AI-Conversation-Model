@@ -94,6 +94,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--optimizer', type=str, default='Adam')
     parser.add_argument('--clip', type=float, default=1.0)
     parser.add_argument('--checkpoint', type=str, default=None)
+    parser.add_argument('--warmup_steps', type=int, default=0)
 
     parser.add_argument('--max_unroll', type=int, default=30)
     parser.add_argument('--sample', type=str2bool, default=False,
@@ -105,7 +106,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
     parser.add_argument('--rnncell', type=str, default='gru')
-    parser.add_argument('--num_layers', type=int, default=1)
+    parser.add_argument('--num_layers', type=int, default=12)
     parser.add_argument('--embedding_size', type=int, default=512)
     parser.add_argument('--tie_embedding', type=str2bool, default=True)
     parser.add_argument('--encoder_hidden_size', type=int, default=512)

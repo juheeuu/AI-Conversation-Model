@@ -10,6 +10,8 @@ import codecs
 import sys
 from .solver import Solver
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
+from subprocess import call
 
 class SolverPTB(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
@@ -19,13 +21,21 @@ class SolverPTB(Solver):
         epoch_loss_history = list()
         min_validation_loss = sys.float_info.max
         patience_cnt = self.config.patience
-        step = 0
 
         self.config.n_gpu = torch.cuda.device_count()
-        self.model = self.model.to(self.config.device)
 
-        # if self.config.n_gpu > 1:
-        #     self.model = torch.nn.DataParallel(self.model).to(self.config.device)
+        t_total = len(self.train_data_loader) * self.config.n_epoch
+        cur_step = 0
+
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.learning_rate)
+        self.scheduler = get_linear_schedule_with_warmup(
+            self.optimizer, num_warmup_steps=self.config.warmup_steps, num_training_steps=t_total
+        )
+
+        if self.config.n_gpu > 1:
+            self.model = torch.nn.DataParallel(self.model, device_ids=[0, 1]).to(self.config.device)
+        else:
+            self.model = self.model.to(self.config.device)
 
         for epoch_i in range(self.epoch_i, self.config.n_epoch):
             self.epoch_i = epoch_i 
@@ -49,7 +59,7 @@ class SolverPTB(Solver):
                     input_utterances, 
                     input_utterances_mask, 
                     target_utterance, 
-                    target_utterance_mask
+                    target_utterance_mask,
                 )
 
                 # masked cross entropy 
@@ -66,15 +76,21 @@ class SolverPTB(Solver):
                 batch_loss_history.append(batch_loss.item() * n_words)
                 n_total_words += n_words
 
-                step += 1
+                if self.config.n_gpu > 1: 
+                    batch_loss = batch_loss.mean()
 
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
-                    self.writer.update_loss(batch_loss.item(), step, 'train_loss')
+                    self.writer.add_scalar('train_loss', batch_loss.item(), cur_step)
+                    print(cur_step)
+
 
                 batch_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.clip)
                 self.optimizer.step()
+                self.scheduler.step()
+                cur_step += 1
+
 
             epoch_loss = np.sum(batch_loss_history) / n_total_words
             epoch_loss_history.append(epoch_loss)
@@ -111,6 +127,9 @@ class SolverPTB(Solver):
         batch_loss_history = []
         n_total_words = 0
 
+        if self.config.n_gpu > 1:
+            self.model = torch.nn.DataParallel(self.model)
+
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       target_utterance,
@@ -135,6 +154,9 @@ class SolverPTB(Solver):
             batch_loss = loss_fn(utterance_logits, ground_truth_target_utterance)
             target_utterance = target_utterance.view(-1)[active_loss]
             n_words = target_utterance.size(0) - 1
+
+            if self.config.n_gpu > 1:
+                batch_loss = batch_loss.mean()
 
             assert not isnan(batch_loss.item())
             batch_loss_history.append(batch_loss.item() * n_words)
@@ -228,13 +250,17 @@ class SolverPTB(Solver):
 
         return conv_idx
 
-        
+def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
+    """ Create a schedule with a learning rate that decreases linearly after
+    linearly increasing during a warmup period.
+    """
 
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(
+            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+        )
 
-
-
-
-                
-
-
+    return LambdaLR(optimizer, lr_lambda, last_epoch)
 

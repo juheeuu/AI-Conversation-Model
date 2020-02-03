@@ -5,7 +5,7 @@
 
 export CUDA_VISIBLE_DEVICES=$1
 
-python train.py --data="$2" --model="$3" --batch_size="$4" --eval_batch_size="$4" --n_epoch="$5" --pretrained_wv=True --users=False
+python train.py --data="$2" --model="$3" --batch_size="$4" --eval_batch_size="$4" --n_epoch="$5" --pretrained_wv=True --users=False --learning_rate="$6"
 
 wait
 

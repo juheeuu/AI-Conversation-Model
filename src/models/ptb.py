@@ -10,6 +10,9 @@ class PTB(nn.Module):
     def __init__(self, config):
         super(PTB, self).__init__()
         self.config = config 
+        self.hidden_size = self.config.encoder_hidden_size
+        self.device = self.config.device 
+        
         self.encoder = layers.PTBEncoder(
             config.vocab_size, config.embedding_size, config.encoder_hidden_size,
             feedforward_hidden_size=config.feedforward_hidden_size, 
@@ -32,17 +35,29 @@ class PTB(nn.Module):
             )
 
         if config.tie_embedding:
-            self.decoder.embedding = self.decoder.embedding
+            self.decoder.embedding = self.encoder.embedding
 
         self.linear = nn.Linear(config.encoder_hidden_size, config.vocab_size)
+
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
     
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask):
-        encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
-        decoder_outputs = self.decoder(encoder_outputs, target_utterance, target_utterance_mask)
+        attn_mask_for_enc = self.make_mask(self.hidden_size).to(self.device)
+        attn_mask_for_dec = attn_mask_for_enc.clone()
+        encoder_outputs = self.encoder(input_utterances, input_utterances_mask, attn_mask=attn_mask_for_enc)
+        decoder_outputs = self.decoder(encoder_outputs, target_utterance, target_utterance_mask, attn_mask=attn_mask_for_dec)
         outputs = self.linear(decoder_outputs)
-
         return outputs
+    
+
+    def make_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        mask = torch.FloatTensor(mask)
+        return mask
 
     def generate(self, input_utterances, input_utterances_mask):
 
@@ -53,7 +68,6 @@ class PTB(nn.Module):
         encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
 
         # Expand input to num beams 
-
         batch_size = input_utterances.size(0)
         beam_size = self.config.beam_size
         max_seq_len = self.config.max_seq_len
