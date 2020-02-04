@@ -13,7 +13,7 @@ if __name__ == '__main__':
         print(config, file=f)
 
 
-    if config.data == "cornell":
+    if config.data_name == "cornell":
         vocab = Vocab()
         vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
         config.vocab_size = vocab.vocab_size
@@ -43,8 +43,9 @@ if __name__ == '__main__':
                                     vocab=vocab, shuffle=False, convs_users=eval_users,
                                     batch_size=val_config.eval_batch_size,
                                     is_ptb_model=(config.model=="PTB"))
-    elif config.data == "lm":
-        train_data_loader = get_lm_loader()
+    elif config.data_name == "lm":
+        train_data_loader = get_lm_loader(config.lm_data_path, config.spm_model_path, batch_size=config.batch_size)
+        eval_data_loader = None
 
     else: 
         raise ValueError("{} dataset doesn't support".format(config.data))
