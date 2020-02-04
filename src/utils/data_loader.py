@@ -3,6 +3,7 @@ import pickle
 import logging
 import sentencepiece as spm
 
+
 class ConvDataset(Dataset):
     def __init__(self, convs, convs_length, utterances_length, vocab):
         """
@@ -156,7 +157,11 @@ def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, 
 
 
 class LMDataSet(Dataset):
-    def __init__(self, tokenizer, file_path: str, cached_path=None):
+    def __init__(self, tokenizer, file_path):
+
+        self.tokenizer = tokenizer
+
+        cached_path = file_path + '.cached'
 
         if os.path.exists(cached_path):
             logger.info("Loading features from cached file %s", cached_path)
@@ -170,22 +175,42 @@ class LMDataSet(Dataset):
             with open(file_path, encoding="utf-8") as f: 
                 text = f.readlines()
                 for line in text: 
-                    pass
+                    line = line.strip()
+                    line = self.set_padding(line)
+                    self.examples.append(line)
 
-            
+            logger.info("Saving fatures into cached file %s", cached_path)
+            with open(cached_path, "wb") af f: 
+                pickle.dump(self.examples, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def set_padding(self, sentence, max_seq_len=512): 
+        """
+        Parameters
+        sentence: str of sentence
+        max_seq_len: int 
+        """
+
+        sentence = self.tokenizer.EncodeAsPieces(sentence)
+        if len(utterance) <= max_seq_len:
+            sentence = sentence + ['<pad>' for _ in range(max_seq_len - len(sentence))]
+        else:
+            sentence.reverse()
+            sentence = sentence[:max_seq_len]
+            sentence.reverse()
+        return [self.tokenizer.PieceToId(tok) for tok in sentence]
+
+    def __getitem__(self, index):
+        return self.examples[index]
 
 
 
 
-def get_lm_loader(data_dir, spm_model):
+def get_lm_loader(data_path, spm_model, batch_size=100, shuffle=True):
 
-    assert os.path.exists(data_dir)
+    assert os.path.exists(data_path)
     assert os.path.exists(spm_model)
 
     tokenizer = spm.SentencePieceProcessor()
     tokenizer.Load(spm_model)
 
-    file_path = data_dir
-    cached_path = data_dir
-
-    return LMDataSet(tokenizer, file_path, cached_path)
+    return LMDataSet(tokenizer, data_path)

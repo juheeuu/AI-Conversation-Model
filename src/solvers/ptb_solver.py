@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from layers import masked_cross_entropy
-from utils import to_var, PAD_ID
+from utils import to_var, PAD_ID, get_linear_schedule_with_warmup
 import os
 from tqdm import tqdm
 from math import isnan
@@ -10,7 +10,6 @@ import codecs
 import sys
 from .solver import Solver
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import LambdaLR
 from subprocess import call
 
 class SolverPTB(Solver):
@@ -29,7 +28,7 @@ class SolverPTB(Solver):
 
         no_decay = ['bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
-            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
+            {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': self.config.weight_decay},
             {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
 
@@ -91,7 +90,6 @@ class SolverPTB(Solver):
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
                     self.writer.add_scalar('batch_train_loss', batch_loss.item(), cur_step)
                     self.writer.add_scalar('learning_rate', self.scheduler.get_lr()[0], cur_step)
-                    print(cur_step)
 
 
                 batch_loss.backward()
@@ -107,8 +105,6 @@ class SolverPTB(Solver):
 
             print(f'Epoch {epoch_i+1} loss average: {epoch_loss:.3f}')
         
-            if epoch_i % self.config.save_every_epoch == 0:
-                self.save_model(epoch_i + 1)
 
             print('\n<Validation>...')
             self.validation_loss = self.evaluate()
@@ -255,17 +251,4 @@ class SolverPTB(Solver):
 
         return conv_idx
 
-def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
-    """ Create a schedule with a learning rate that decreases linearly after
-    linearly increasing during a warmup period.
-    """
-
-    def lr_lambda(current_step):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        return max(
-            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
-        )
-
-    return LambdaLR(optimizer, lr_lambda, last_epoch)
 

@@ -5,6 +5,7 @@ import os
 import solvers
 from utils import load_pickle
 import torch 
+import sentencepiece as spm
 
 if __name__ == '__main__':
     config = get_config(mode='train')
@@ -46,6 +47,8 @@ if __name__ == '__main__':
     elif config.data_name == "lm":
         train_data_loader = get_lm_loader(config.lm_data_path, config.spm_model_path, batch_size=config.batch_size)
         eval_data_loader = None
+        vocab = spm.SentencePieceProcessor()
+        vocab.Load(config.spm_model_path)
 
     else: 
         raise ValueError("{} dataset doesn't support".format(config.data))

@@ -94,6 +94,8 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--clip', type=float, default=1.0)
     parser.add_argument('--checkpoint', type=str, default=None)
     parser.add_argument('--warmup_steps', type=int, default=0)
+    parser.add_argument("--weight_decay", default=0.01, type=float,
+                        help="Weight deay if we apply some.")
 
     parser.add_argument('--max_unroll', type=int, default=30)
     parser.add_argument('--sample', type=str2bool, default=False,
@@ -127,7 +129,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--kl_annealing_iter', type=int, default=5000)
     parser.add_argument('--importance_sample', type=int, default=100)
     parser.add_argument('--sentence_drop', type=float, default=0.25)
-    parser.add_argument('--patience', type=int, default=5)
+    parser.add_argument('--patience', type=int, default=50)
 
     parser.add_argument('--n_context', type=int, default=1)
     parser.add_argument('--n_sample_step', type=int, default=1)
@@ -141,7 +143,8 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--data_name', type=str, default='tc_10_15')
     parser.add_argument('--pretrained_wv', type=str2bool, default=True)
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
-    parser.add_argument('--data', type=str)
+    parser.add_argument('--lm_data_path', type=str, default='all.merge')
+    parser.add_argument('--spm_model_path', type=str, default='spm.model')
 
     if parse:
         kwargs = parser.parse_args()
