@@ -42,6 +42,21 @@ class PTB(nn.Module):
         
         if config.tie_embedding:
             self.decoder.embedding.weight = self.encoder.embedding.weight
+
+            # Encoder and Decoder share the same set of parameters  
+            for en_layer, dec_layer in zip(self.encoder.encoder.layers, self.decoder.decoder_stack):
+                dec_layer.OcAttnLayer = en_layer.self_attn
+                dec_layer.OcPrevAttnLayer = en_layer.self_attn
+                dec_layer.linear1.weight = en_layer.linear1.weight
+                dec_layer.linear2.weight = en_layer.linear2.weight
+                dec_layer.norm1.weight = en_layer.norm1.weight
+                dec_layer.norm2.weight = en_layer.norm2.weight
+
+            self.decoder.decoder_norm.weight = self.encoder.encoder.norm.weight
+
+
+
+    
     
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask):

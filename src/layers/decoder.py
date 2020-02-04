@@ -332,8 +332,8 @@ class AttentionRoutingLayer(nn.Module):
 
         self.activation = F.relu
     
-    def forward(self, Ec, Eprev, Eprev_mask=None, generate=False, attn_mask=None):
-        Oc = self.OcAttnLayer(Eprev, Ec, Ec)[0]
+    def forward(self, Ec, Eprev, Eprev_mask=None, Ec_key_padding_mask=None, generate=False, attn_mask=None):
+        Oc = self.OcAttnLayer(Eprev, Ec, Ec, key_padding_mask=Ec_key_padding_mask)[0]
         Oprev = self.OprevAttnLayer(Eprev, Eprev, Eprev, attn_mask=attn_mask, key_padding_mask=Eprev_mask)[0]
 
         Omerge = 2 * Oc + Oprev
@@ -345,10 +345,3 @@ class AttentionRoutingLayer(nn.Module):
         output = self.norm2(output)
 
         return output
-
-
-    def make_mask(self, sz):
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        mask = torch.FloatTensor(mask).to(self.device)
-        return None
