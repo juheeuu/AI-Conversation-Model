@@ -84,7 +84,6 @@ class ConvPTBDataset(ConvDataset):
         """
         self.convs = convs
         self.vocab = vocab
-        self.len = len(convs)   # total number of conversations
         self.utterances_length = utterances_length
 
     def __getitem__(self, index):
@@ -98,47 +97,44 @@ class ConvPTBDataset(ConvDataset):
         it need <sep> token for each conversation 
         """
         utterances = self.convs[index]
+
         target_utterance = utterances[-1]
         input_utterances = utterances[:-1]
 
-        input_utterances_list = []
+        inputs = []
         for utter in input_utterances: 
-            for i, tok in enumerate(utter): 
-                if tok == '<eos>':
-                    input_utterances_list += utter[:i+1]
-                    input_utterances_list.append('<sep>')
-        
-        input_utterances_list.pop()
-        input_utterances = input_utterances_list
-        input_utterances = self.set_padding(input_utterances)
+            inputs += self.vocab.encode(utter)
+            inputs += [self.vocab.eos_token_id, self.vocab.sep_token_id]
+        inputs.pop()
+        inputs = self.set_padding(inputs)
 
-        ground_truth_target_utterance = target_utterance
-        ground_truth_target_utterance = self.set_padding(ground_truth_target_utterance)
-        
-        target_utterance = ['<sos>'] + target_utterance
-        target_utterance = self.set_padding(target_utterance)
-            
-        input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
-        target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
+        gt_target = self.vocab.encode(target_utterance) + [self.vocab.eos_token_id]
+        gt_target = self.set_padding(gt_target)
 
-        input_utterances = self.vocab.sent2id(input_utterances)
-        target_utterance = self.vocab.sent2id(target_utterance)
-        ground_truth_target_utterance = self.vocab.sent2id(ground_truth_target_utterance)
+        target = [self.vocab.bos_token_id] + gt_target[:-1]
 
-        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask, ground_truth_target_utterance
+        input_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in inputs]
+        target_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in target]
+        gt_target_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in gt_target ]
+
+        return inputs, input_mask, target, target_mask, gt_target, gt_target_mask
     
     def set_padding(self, utterance, max_seq_len=512):
         if len(utterance) <= max_seq_len:
-            utterance = utterance + ['<pad>' for _ in range(max_seq_len - len(utterance))]
+            utterance = utterance + [ self.vocab.pad_token_id for _ in range(max_seq_len - len(utterance))]
         else:
             utterance.reverse()
             utterance = utterance[:max_seq_len]
             utterance.reverse()
         return utterance
 
+    def __len__(self):
+        return len(self.convs)
 
 
-def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, batch_size=100, shuffle=True, is_ptb_model=False):
+
+
+def get_loader(convs, convs_length=None, utterances_length=None, vocab=None, convs_users=None, batch_size=100, shuffle=True, is_ptb_model=False):
     def collate_fn(data):
         # Sort by conversation length (descending order) to use 'pack_padded_sequence'
         data.sort(key=lambda x: x[1], reverse=True)
@@ -180,7 +176,7 @@ class LMDataSet(Dataset):
                     self.examples.append(line)
 
             logger.info("Saving fatures into cached file %s", cached_path)
-            with open(cached_path, "wb") af f: 
+            with open(cached_path, "wb") as f: 
                 pickle.dump(self.examples, f, protocol=pickle.HIGHEST_PROTOCOL)
     
     def set_padding(self, sentence, max_seq_len=512): 
@@ -201,6 +197,9 @@ class LMDataSet(Dataset):
 
     def __getitem__(self, index):
         return self.examples[index]
+
+    def __len__(self):
+        return len(self.examples)
 
 
 

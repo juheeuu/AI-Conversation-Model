@@ -33,12 +33,12 @@ class SolverPTB(Solver):
         ]
 
         self.optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.config.learning_rate)
-        self.scheduler = get_linear_schedule_with_warmup(
+        self.scheduler = get_linear_schedule_with_warmup (
             self.optimizer, num_warmup_steps=self.config.warmup_steps, num_training_steps=t_total
         )
 
         if self.config.n_gpu > 1:
-            self.model = torch.nn.DataParallel(self.model, device_ids=[0, 1]).to(self.config.device)
+            self.model = torch.nn.DataParallel(self.model).to(self.config.device)
         else:
             self.model = self.model.to(self.config.device)
 
@@ -51,37 +51,45 @@ class SolverPTB(Solver):
                           input_utterances_mask,
                           target_utterance,
                           target_utterance_mask,
-                          ground_truth_target_utterance) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+                          ground_truth_target_utterance,
+                          ground_truth_target_utterance_mask) in enumerate(tqdm(self.train_data_loader, ncols=80)):
     
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
-                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+                input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
-                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
+                target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
                 ground_truth_target_utterance = torch.LongTensor(ground_truth_target_utterance).to(self.config.device)
+                ground_truth_target_utterance_mask = torch.LongTensor(ground_truth_target_utterance_mask).to(self.config.device)
 
                 self.optimizer.zero_grad()
                 self.model.zero_grad()
 
-                utterance_logits = self.model(
+                lm_logits, conv_logits = self.model(
                     input_utterances, 
                     input_utterances_mask, 
                     target_utterance, 
                     target_utterance_mask,
+                    ground_truth_target_utterance,
+                    ground_truth_target_utterance_mask
                 )
 
                 # masked cross entropy 
-                loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_ID)
-                active_loss = target_utterance_mask.view(-1) != True 
-                utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
-                ground_truth_target_utterance = ground_truth_target_utterance.view(-1)
-                batch_loss = loss_fn(utterance_logits, ground_truth_target_utterance)
-                target_utterance = target_utterance.view(-1)[active_loss]
+                loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.vocab.pad_token_id)
 
-                n_words = target_utterance.size(0) - 1
+                # LM loss 
+                shift_logits = lm_logits[..., :-1, :].contiguous()
+                shift_labels = ground_truth_target_utterance[..., 1:].contiguous()
+                lm_loss = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+                # Generated Response loss
+                conv_logits = conv_logits.view(-1, conv_logits.size(-1)) 
+                ground_truth_target_utterance = ground_truth_target_utterance.view(-1)
+                conv_loss = loss_fn(conv_logits, ground_truth_target_utterance)
+
+                batch_loss = conv_loss + lm_loss
 
                 assert not isnan(batch_loss.item())
-                batch_loss_history.append(batch_loss.item() * n_words)
-                n_total_words += n_words
+                batch_loss_history.append(batch_loss.item())
 
                 if self.config.n_gpu > 1: 
                     batch_loss = batch_loss.mean()
@@ -99,7 +107,7 @@ class SolverPTB(Solver):
                 cur_step += 1
 
 
-            epoch_loss = np.sum(batch_loss_history) / n_total_words
+            epoch_loss = np.mean(batch_loss_history)
             epoch_loss_history.append(epoch_loss)
             self.epoch_loss = epoch_loss
 
@@ -136,7 +144,8 @@ class SolverPTB(Solver):
                       input_utterances_mask,
                       target_utterance,
                       target_utterance_mask,
-                      ground_truth_target_utterance) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      ground_truth_target_utterance,
+                      ground_truth_target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
@@ -144,26 +153,40 @@ class SolverPTB(Solver):
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device)
                 ground_truth_target_utterance = torch.LongTensor(ground_truth_target_utterance).to(self.config.device)
+                ground_truth_target_utterance_mask = torch.LongTensor(ground_truth_target_utterance_mask).to(self.config.device)
 
-            utterance_logits = self.model(input_utterances, input_utterances_mask, target_utterance, target_utterance_mask)
+
+            lm_logits, conv_logits = self.model(
+                input_utterances, 
+                input_utterances_mask, 
+                target_utterance, 
+                target_utterance_mask,
+                ground_truth_target_utterance,
+                ground_truth_target_utterance_mask
+            )
 
             # masked cross entropy 
             loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_ID)
-            active_loss = target_utterance_mask.view(-1) != True 
-            utterance_logits = utterance_logits.view(-1, utterance_logits.size(2))
+
+            # LM loss 
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = ground_truth_target_utterance[..., 1:].contiguous()
+            lm_loss = loss_fn(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+            # Generated Response loss
+            conv_logits = conv_logits.view(-1, conv_logits.size(-1)) 
             ground_truth_target_utterance = ground_truth_target_utterance.view(-1)
-            batch_loss = loss_fn(utterance_logits, ground_truth_target_utterance)
-            target_utterance = target_utterance.view(-1)[active_loss]
-            n_words = target_utterance.size(0) - 1
+            conv_loss = loss_fn(conv_logits, ground_truth_target_utterance)
+
+            batch_loss = conv_loss + lm_loss
 
             if self.config.n_gpu > 1:
                 batch_loss = batch_loss.mean()
 
             assert not isnan(batch_loss.item())
-            batch_loss_history.append(batch_loss.item() * n_words)
-            n_total_words += n_words
+            batch_loss_history.append(batch_loss.item())
         
-        epoch_loss = np.sum(batch_loss_history) / n_total_words
+        epoch_loss = np.mean(batch_loss_history)
         print(f'Validation loss: {epoch_loss:.3f}\n')
 
         return epoch_loss
@@ -176,7 +199,8 @@ class SolverPTB(Solver):
                       input_utterances_mask,
                       target_utterance,
                       target_utterance_mask,
-                      ground_truth_target_utterance) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      ground_truth_target_utterance,
+                      ground_truth_target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)

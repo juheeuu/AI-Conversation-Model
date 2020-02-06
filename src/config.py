@@ -41,6 +41,7 @@ class Config(object):
         self.dataset_dir = data_dir.joinpath(self.data_name)
 
         self.data_dir = self.dataset_dir.joinpath(self.mode)
+
         self.word2id_path = self.dataset_dir.joinpath('word2id.pkl')
         self.id2word_path = self.dataset_dir.joinpath('id2word.pkl')
 

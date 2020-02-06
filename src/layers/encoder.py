@@ -158,8 +158,8 @@ class ContextRNN(BaseRNNEncoder):
 
 class PTBEncoder(nn.Module):
     def __init__(self, vocab_size, embedding_size,
-                 hidden_size, feedforward_hidden_size=2048, num_layers=12,
-                 num_heads=8, dropout=0.0, pretrained_wv_path=None, device=None):
+                 hidden_size, feedforward_hidden_size=2048, num_layers=12, max_seq_len=512,
+                 num_heads=8, dropout=0.0, pretrained_wv_path=None, device=None, pad_token_idx=None, layer_norm_epsilon=1e-6):
         super(PTBEncoder, self).__init__()
         
         self.vocab_size = vocab_size
@@ -170,53 +170,61 @@ class PTBEncoder(nn.Module):
         self.feedforward_hidden_size = feedforward_hidden_size
         self.device = device
 
-        self.embedding = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD_ID)
 
-        # if pretrained_wv_path is None:
-        #     self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
-        # else:
-        #     with open(pretrained_wv_path, 'rb') as f:
-        #         weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
+        self.wte = nn.Embedding(vocab_size, hidden_size, padding_idx=pad_token_idx)
+        self.pte = nn.Embedding(max_seq_len, hidden_size)
+        self.drop = nn.Dropout(dropout)
+        # 여기서 n_ctx 가 뭐임 
+        self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(num_layers)])
+        self.ln_f = nn.LayerNorm(hidden_size, layer_norm_epsilon)
 
-        #     self.embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False)
-        #     print("Load the wv Done")
         
-        self.pos_encoder = PositionalEncoding(hidden_size, dropout)
-        self.dropoutLayer = nn.Dropout(dropout)
-        # self.linear = nn.Linear(embedding_size, hidden_size)
-        encoder_layer = nn.TransformerEncoderLayer(hidden_size, num_heads, feedforward_hidden_size, dropout)
-        encoder_norm = nn.LayerNorm(hidden_size, eps=1e-6)
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers, encoder_norm)
-
-    def forward(self, inputs, inputs_mask, attn_mask=None):
+    def forward(self, input_ids, input_mask, position_ids, attn_mask=None):
         """
          inputs : (batch_size, max_seq_len)
          inputs_mask : (batch_size, max_seq_len) BOOL 
         """
-        embedded = self.dropoutLayer(self.pos_encoder(self.embedding(inputs))) # (batch_size, max_seq_len, embedded_size)
+        input_shape = input_ids.size()
+        input_ids = input_ids.view(-1, input_shape[-1])
 
-        inputs = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
+        device = input_ids.device
+        position_ids = torch.arange(0, input_shape[-1], dtype=torch.long, device=device)
+        position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
 
-        enc_output = self.encoder(inputs, mask=attn_mask, src_key_padding_mask=inputs_mask)
-        # (max_seq_len, batch_size, hidden_size)
-        enc_output = enc_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
+        if attn_mask is not None:
+            attn_mask = attn_mask.view(-1, input_shape[-1])
+            attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+
+            attention_mask = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
+            attention_mask = (1.0 - attention_mask) * -10000.0
+
+        head_mask = [None] * self.config.n_layer
+
+        inputs_embeds = self.wte(input_ids)
+        position_embeds = self.wpe(position_ids)
+        token_type_embeds = 0
+
+        hidden_states = inputs_embeds + position_embeds + token_type_embeds
+        hidden_states = self.drop(hidden_states)
+
+        for i, block in enumerate(self.h):
+            hidden_states = block(
+                hidden_states,  attention_mask=attention_mask, head_mask=head_mask[i]
+            )
+
+        hidden_states = self.ln_f(hidden_states)
+
+        return hidden_states
+
+
+
+
+        # embedded = self.dropoutLayer(self.pos_encoder(self.embedding(inputs))) # (batch_size, max_seq_len, embedded_size)
+
+        # inputs = embedded.transpose(0, 1) #(max_seq_len, batch_size, hidden_size)
+
+        # enc_output = self.encoder(inputs, mask=attn_mask, src_key_padding_mask=inputs_mask)
+        # # (max_seq_len, batch_size, hidden_size)
+        # enc_output = enc_output.transpose(0, 1) # (batch_size, max_seq_len, hidden_size)
 
         return enc_output
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=512):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
-        return self.dropout(x)

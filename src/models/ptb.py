@@ -4,68 +4,42 @@ from utils import to_var, pad
 import layers
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
 import torch.nn.functional as F
+from transformers import OpenAIGPTModel, OpenAIGPTConfig, GPT2Model, GPT2Config
 
 
 class PTB(nn.Module):
     def __init__(self, config):
         super(PTB, self).__init__()
-        self.config = config 
-        self.hidden_size = self.config.encoder_hidden_size
-        self.device = self.config.device 
-        
-        self.encoder = layers.PTBEncoder(
-            config.vocab_size, config.embedding_size, config.encoder_hidden_size,
-            feedforward_hidden_size=config.feedforward_hidden_size, 
-            num_layers=config.num_layers, 
-            num_heads=config.num_heads, 
-            dropout=config.dropout, 
-            pretrained_wv_path=config.pretrained_wv_path,
-            device=config.device
-            )
-        self.decoder = layers.PTBDecoder(
-            config.vocab_size, config.embedding_size, config.encoder_hidden_size,
-            feedforward_hidden_size=config.feedforward_hidden_size, 
-            num_layers=config.num_layers, 
-            num_heads=config.num_heads, 
-            dropout=config.dropout, 
-            pretrained_wv_path=config.pretrained_wv_path,
-            device=config.device,
-            beam_size=config.beam_size,
-            max_seq_len=config.max_seq_len
-            )
-
-        self.linear = nn.Linear(config.encoder_hidden_size, config.vocab_size)
-
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-        
-        if config.tie_embedding:
-            self.decoder.embedding.weight = self.encoder.embedding.weight
-
-            # Encoder and Decoder share the same set of parameters  
-            for en_layer, dec_layer in zip(self.encoder.encoder.layers, self.decoder.decoder_stack):
-                dec_layer.OcAttnLayer = en_layer.self_attn
-                dec_layer.OcPrevAttnLayer = en_layer.self_attn
-                dec_layer.linear1.weight = en_layer.linear1.weight
-                dec_layer.linear2.weight = en_layer.linear2.weight
-                dec_layer.norm1.weight = en_layer.norm1.weight
-                dec_layer.norm2.weight = en_layer.norm2.weight
-
-            self.decoder.decoder_norm.weight = self.encoder.encoder.norm.weight
+        self.config = OpenAIGPTConfig.from_pretrained('openai-gpt') 
 
 
-
-    
+        transformer = layers.PTBDecoder(self.config).from_pretrained('openai-gpt', config=self.config)
+        model_to_resize = transformer.module if hasattr(transformer, "module") else transformer
+        model_to_resize.resize_token_embeddings(config.vocab_size)
+        self.transformer = model_to_resize
+        self.config.vocab_size = config.vocab_size
+        self.linear = nn.Linear(self.config.n_embd, self.config.vocab_size)
     
     def forward(self, input_utterances, input_utterances_mask, 
-                target_utterance, target_utterance_mask):
-        attn_mask_for_enc = self.make_mask(self.hidden_size).to(self.device)
-        attn_mask_for_dec = attn_mask_for_enc.clone()
-        encoder_outputs = self.encoder(input_utterances, input_utterances_mask, attn_mask=attn_mask_for_enc)
-        decoder_outputs = self.decoder(encoder_outputs, target_utterance, target_utterance_mask, attn_mask=attn_mask_for_dec)
-        outputs = self.linear(decoder_outputs)
-        return outputs
+                target_utterance, target_utterance_mask,
+                gt_target, gt_target_mask):
+
+        enc_output = self.transformer(
+            input_utterances,
+            attention_mask=input_utterances_mask
+        )
+        dec_output = self.transformer(
+            target_utterance,
+            encoder_output=enc_output,
+            attention_mask=target_utterance_mask,
+            decode=True
+        )
+        outputs = self.linear(dec_output)
+
+        lm_output = self.transformer(gt_target)
+        lm_output = self.linear(lm_output)
+
+        return lm_output, outputs
     
 
     def make_mask(self, sz):
@@ -80,7 +54,10 @@ class PTB(nn.Module):
         Generate the response based on the input utterances 
         """
 
-        encoder_outputs = self.encoder(input_utterances, input_utterances_mask)
+        enc_output = self.transformer(
+            input_utterances, 
+            attention_mask=input_utterances_mask
+            )
 
         # Expand input to num beams 
         batch_size = input_utterances.size(0)
@@ -97,7 +74,6 @@ class PTB(nn.Module):
         input_ids = input_ids.unsqueeze(-1).unsqueeze(-1).expand(batch_size, beam_size, cur_len)
         input_ids = input_ids.contiguous().view(batch_size * beam_size, cur_len) 
 
-        # TODO:
         generated_hyps = [
             BeamHypotheses(beam_size, max_seq_len, early_stopping=False) for _ in range(batch_size)
         ]
@@ -114,7 +90,14 @@ class PTB(nn.Module):
         done = [False for _ in range(batch_size)]
 
         while cur_len < max_seq_len: 
-            outputs = self.linear(self.decoder(encoder_outputs, input_ids, generate=True)) # (batch_size * beam_size, cur_len, vocab_size)
+
+            dec_output = self.transformer(
+                input_ids,
+                encoder_output=enc_output,
+                decode=True,
+                generate=True
+            )
+            outputs = self.linear(dec_output) # (batch_size * beam_size, cur_len, vocab_size)
             scores = outputs[:,-1,:] # (batch_size * beam_size, vocab_size)
 
             scores = F.log_softmax(scores, dim=-1) # (batch_size * beam_size, vocab_size)
@@ -195,6 +178,10 @@ class PTB(nn.Module):
             decoded[i, tgt_len[i] - 1] = EOS_ID
 
         return decoded
+
+    
+    def from_pretrained(self):
+        pass
 
 
 
