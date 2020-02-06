@@ -86,7 +86,7 @@ class SolverPTB(Solver):
                 ground_truth_target_utterance = ground_truth_target_utterance.view(-1)
                 conv_loss = loss_fn(conv_logits, ground_truth_target_utterance)
 
-                batch_loss = conv_loss + lm_loss
+                batch_loss = conv_loss + lm_loss * 0.2
 
                 assert not isnan(batch_loss.item())
                 batch_loss_history.append(batch_loss.item())
@@ -96,8 +96,10 @@ class SolverPTB(Solver):
 
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
-                    self.writer.add_scalar('batch_train_loss', batch_loss.item(), cur_step)
-                    self.writer.add_scalar('learning_rate', self.scheduler.get_lr()[0], cur_step)
+                    self.writer.add_scalar('Train/batch_train_loss', batch_loss.item(), cur_step)
+                    self.writer.add_scalar('Train/lm_train_loss', lm_loss.item(), cur_step)
+                    self.writer.add_scalar('Train/conv_train_loss', conv_loss.item(), cur_step)
+                    self.writer.add_scalar('Train/learning_rate', self.scheduler.get_lr()[0], cur_step)
 
 
                 batch_loss.backward()
@@ -113,13 +115,15 @@ class SolverPTB(Solver):
 
             print(f'Epoch {epoch_i+1} loss average: {epoch_loss:.3f}')
         
-
             print('\n<Validation>...')
-            self.validation_loss = self.evaluate()
+            val_loss, val_lm_loss, val_conv_loss = self.evaluate()
+            self.validation_loss = val_loss.item()
 
             if epoch_i % self.config.plot_every_epoch == 0:
-                self.write_summary(epoch_i)
-
+                self.writer.add_scalar('Val/loss', val_loss.item(), epoch_i)
+                self.writer.add_scalar('Val/lm_loss', val_lm_loss.item(), epoch_i)
+                self.writer.add_scalar('Val/conv_loss', val_conv_loss.item(), epoch_i)
+                
             if min_validation_loss > self.validation_loss:
                 min_validation_loss = self.validation_loss
             else:
@@ -138,6 +142,8 @@ class SolverPTB(Solver):
     def evaluate(self):
         self.model.eval()
         batch_loss_history = []
+        lm_loss_history = []
+        conv_loss_history = []
         n_total_words = 0
 
         for batch_i, (input_utterances,
@@ -178,18 +184,22 @@ class SolverPTB(Solver):
             ground_truth_target_utterance = ground_truth_target_utterance.view(-1)
             conv_loss = loss_fn(conv_logits, ground_truth_target_utterance)
 
-            batch_loss = conv_loss + lm_loss
+            batch_loss = conv_loss + lm_loss * 0.2
 
             if self.config.n_gpu > 1:
                 batch_loss = batch_loss.mean()
 
             assert not isnan(batch_loss.item())
             batch_loss_history.append(batch_loss.item())
+            lm_loss_history.append(lm_loss.item())
+            conv_loss_history.append(conv_loss.item())
         
         epoch_loss = np.mean(batch_loss_history)
+        lm_loss = np.mean(lm_loss_history)
+        conv_loss = np.mean(conv_loss_history)
         print(f'Validation loss: {epoch_loss:.3f}\n')
 
-        return epoch_loss
+        return epoch_loss, lm_loss, conv_loss
 
     def test(self):
         self.model.eval()
