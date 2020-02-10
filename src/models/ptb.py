@@ -4,7 +4,7 @@ from utils import to_var, pad
 import layers
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
 import torch.nn.functional as F
-from transformers import OpenAIGPTModel, OpenAIGPTConfig, GPT2Model, GPT2Config
+from transformers import OpenAIGPTModel, OpenAIGPTConfig, GPT2Model, GPT2Config, Model2Model
 
 
 class PTB(nn.Module):
@@ -12,13 +12,23 @@ class PTB(nn.Module):
         super(PTB, self).__init__()
         self.config = OpenAIGPTConfig.from_pretrained('openai-gpt') 
 
-
         transformer = layers.PTBDecoder(self.config).from_pretrained('openai-gpt', config=self.config)
         model_to_resize = transformer.module if hasattr(transformer, "module") else transformer
         model_to_resize.resize_token_embeddings(config.vocab_size)
-        self.transformer = model_to_resize
+
         self.config.vocab_size = config.vocab_size
+        self.config.max_seq_len = config.max_seq_len
+        self.config.device = config.device
+        self.vocab = config.vocab
+
+        self.transformer = model_to_resize
         self.linear = nn.Linear(self.config.n_embd, self.config.vocab_size)
+
+        # without pre training version
+        # self.transformer.init_weights()
+        self.linear.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+        if self.linear.bias is not None:
+            self.linear.bias.data.zero_()
     
     def forward(self, input_utterances, input_utterances_mask, 
                 target_utterance, target_utterance_mask,
@@ -31,22 +41,16 @@ class PTB(nn.Module):
         dec_output = self.transformer(
             target_utterance,
             encoder_output=enc_output,
+            src_attn_mask=input_utterances_mask,
             attention_mask=target_utterance_mask,
-            decode=True
+            decode=True,
         )
         outputs = self.linear(dec_output)
 
-        lm_output = self.transformer(gt_target)
+        lm_output = self.transformer(gt_target, attention_mask=gt_target_mask)
         lm_output = self.linear(lm_output)
 
         return lm_output, outputs
-    
-
-    def make_mask(self, sz):
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask==0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        mask = torch.FloatTensor(mask)
-        return mask
 
     def generate(self, input_utterances, input_utterances_mask):
 
@@ -58,7 +62,8 @@ class PTB(nn.Module):
             input_utterances, 
             attention_mask=input_utterances_mask
             )
-
+        
+        output = self.linear(enc_output)
         # Expand input to num beams 
         batch_size = input_utterances.size(0)
         beam_size = self.config.beam_size
@@ -66,7 +71,7 @@ class PTB(nn.Module):
         vocab_size = self.config.vocab_size
 
         # start with SOS TOKEN
-        init_seq = [SOS_ID]
+        init_seq = [self.vocab.bos_token_id]
 
         cur_len = 1
 
@@ -95,8 +100,11 @@ class PTB(nn.Module):
                 input_ids,
                 encoder_output=enc_output,
                 decode=True,
-                generate=True
+                generate=True,
+                src_attn_mask=input_utterances_mask,
             )
+
+
             outputs = self.linear(dec_output) # (batch_size * beam_size, cur_len, vocab_size)
             scores = outputs[:,-1,:] # (batch_size * beam_size, vocab_size)
 
@@ -115,7 +123,7 @@ class PTB(nn.Module):
                 done[batch_ex] = done[batch_ex] or generated_hyps[batch_ex].is_done(next_scores[batch_ex].max().item())
 
                 if done[batch_ex]:
-                    next_batch_beam.extend([(0, PAD_ID, 0)] * beam_size)  # pad the batch
+                    next_batch_beam.extend([(0, self.vocab.pad_token_id, 0)] * beam_size)  # pad the batch
                     continue
 
                 next_sent_beam = []
@@ -125,7 +133,7 @@ class PTB(nn.Module):
                     beam_id = idx // vocab_size
                     word_id = idx % vocab_size
 
-                    if word_id == EOS_ID or cur_len + 1 == max_seq_len:
+                    if word_id == self.vocab.eos_token_id or cur_len + 1 == max_seq_len:
                         generated_hyps[batch_ex].add(
                             input_ids[batch_ex * beam_size + beam_id, :cur_len].clone(), score.item()
                         )
@@ -140,7 +148,7 @@ class PTB(nn.Module):
                 
                 assert len(next_sent_beam) == 0 if cur_len + 1 == max_seq_len else beam_size
                 if len(next_sent_beam) == 0:
-                    next_sent_beam = [(0, PAD_ID, 0)] * beam_size # pad the batch 
+                    next_sent_beam = [(0, self.vocab.pad_token_id, 0)] * beam_size # pad the batch 
                 next_batch_beam.extend(next_sent_beam)
                 assert len(next_batch_beam) == beam_size * (batch_ex + 1)
 
@@ -163,27 +171,18 @@ class PTB(nn.Module):
         tgt_len = input_ids.new(batch_size)
         best = []
 
-        batch_loss = 0.0
-
         for i, hypothesis in enumerate(generated_hyps):
             seq_loss, best_hyp = max(hypothesis.hyp, key=lambda x: x[0])
             tgt_len[i] = len(best_hyp) + 1  # +1 for the <EOS> symbol\
-            batch_loss += seq_loss
             best.append(best_hyp)
         
         # generate target batch
-        decoded = input_ids.new(batch_size, tgt_len.max().item()).fill_(PAD_ID)
+        decoded = input_ids.new(batch_size, tgt_len.max().item()).fill_(self.vocab.pad_token_id)
         for i, hypo in enumerate(best):
             decoded[i, : tgt_len[i] - 1] = hypo
-            decoded[i, tgt_len[i] - 1] = EOS_ID
+            decoded[i, tgt_len[i] - 1] = self.vocab.eos_token_id
 
         return decoded
-
-    
-    def from_pretrained(self):
-        pass
-
-
 
 
 class BeamHypotheses(object):

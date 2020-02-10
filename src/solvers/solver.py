@@ -4,6 +4,7 @@ import models
 from utils import TensorboardWriter
 import os
 import re
+from collections import OrderedDict
 
 
 class Solver(object):
@@ -56,7 +57,14 @@ class Solver(object):
         print(f'Load parameters from {checkpoint}')
         epoch = re.match(r"[0-9]*", os.path.basename(checkpoint)).group(0)
         self.epoch_i = int(epoch)
-        self.model.load_state_dict(torch.load(checkpoint))
+        chpt = torch.load(checkpoint)
+        new_state_dict= OrderedDict()
+        for k, v in chpt.items():
+            name=k[7:] #remove 'module.' of DataParallel
+            new_state_dict[name]=v
+
+        self.model.load_state_dict(new_state_dict)
+        # self.model.load_state_dict(chpt)
 
     def write_summary(self, epoch_i):
         epoch_loss = getattr(self, 'epoch_loss', None)

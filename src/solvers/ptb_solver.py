@@ -172,7 +172,7 @@ class SolverPTB(Solver):
             )
 
             # masked cross entropy 
-            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_ID)
+            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.vocab.pad_token_id)
 
             # LM loss 
             shift_logits = lm_logits[..., :-1, :].contiguous()
@@ -250,12 +250,14 @@ class SolverPTB(Solver):
         context_history = list()
         sample_history = list()
         ground_truth_history = list()
+        self.config.max_seq_len = 512
 
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       _,
                       _,
-                      ground_truth_target_utterance) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      ground_truth_target_utterance,
+                      _) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
 
             context_history.append(input_utterances)
             with torch.no_grad():
@@ -267,6 +269,7 @@ class SolverPTB(Solver):
             all_samples = all_samples.data.cpu().numpy().tolist()
             sample_history.append(all_samples)
             ground_truth_history.append(ground_truth_target_utterance)
+            break
 
         
         target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,

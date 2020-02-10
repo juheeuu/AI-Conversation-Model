@@ -109,13 +109,16 @@ class ConvPTBDataset(ConvDataset):
         inputs = self.set_padding(inputs)
 
         gt_target = self.vocab.encode(target_utterance) + [self.vocab.eos_token_id]
-        gt_target = self.set_padding(gt_target)
 
+        # tok1 tok2 ... tok511 <eos> 
         target = [self.vocab.bos_token_id] + gt_target[:-1]
+        gt_target = self.set_padding(gt_target)
+        target = self.set_padding(target)
+
 
         input_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in inputs]
         target_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in target]
-        gt_target_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in gt_target ]
+        gt_target_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in gt_target]
 
         return inputs, input_mask, target, target_mask, gt_target, gt_target_mask
     

@@ -30,7 +30,7 @@ def gelu(x):
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 class Attention(nn.Module):
-    def __init__(self, nx, n_ctx, config, scale=False):
+    def __init__(self, nx, n_ctx, config, scale=False, crossLayer=False):
         super().__init__()
         self.output_attentions = config.output_attentions
 
@@ -42,7 +42,12 @@ class Attention(nn.Module):
         self.split_size = n_state
         self.scale = scale
 
-        self.c_attn = Conv1D(n_state * 3, nx)
+        if crossLayer:
+            self.query = Conv1D(n_state, nx)
+            self.key = Conv1D(n_state, nx)
+            self.value = Conv1D(n_state, nx)
+        else:
+            self.c_attn = Conv1D(n_state * 3, nx)
         self.c_proj = Conv1D(n_state, nx)
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
@@ -56,12 +61,16 @@ class Attention(nn.Module):
 
         if masked:
             b = self.bias[:, :, ns - nd : ns, :ns]
-            b = self.bias[:, :, : w.size(-2), : w.size(-1)]
             w = w * b - 1e4 * (1 - b)
 
         if attention_mask is not None:
             # Apply the attention mask
+            # print(w.shape)
+            # print(attention_mask)
+            # print(attention_mask.shape)
             w = w + attention_mask
+            # print(w)
+            # exit()
 
         w = nn.Softmax(dim=-1)(w)
         w = self.attn_dropout(w)
@@ -82,6 +91,7 @@ class Attention(nn.Module):
 
     def split_heads(self, x, k=False):
         new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
+        # (batch, seq_len, n_head, head_features) 
         x = x.view(*new_x_shape)  # in Tensorflow implem: fct split_states
         if k:
             return x.permute(0, 2, 3, 1)  # (batch, head, head_features, seq_length)
@@ -91,10 +101,13 @@ class Attention(nn.Module):
     def forward(self, x=None, query=None, key=None, value=None, attention_mask=None, head_mask=None, masked=True):
         
         if (query is not None) and (key is not None) and (value is not None):  
-            assert query and key and value 
-            query = self.split_heads(query)
-            key = self.split_heads(key, k=True)
-            value = self.split_heads(value)
+            query = self.query(query) # (batch, max_seq_len, hidden_size)
+            key = self.key(key) # (batch, max_seq_len, hidden_size)
+            value = self.value(value) # (batch, max_seq_len, hidden_size)
+
+            query = self.split_heads(query) # (batch, head, head_features, seq_length)
+            key = self.split_heads(key, k=True) # (batch, head, head_features, seq_length)
+            value = self.split_heads(value) # (batch, head, head_features, seq_length)
         else:
             x = self.c_attn(x)
             query, key, value = x.split(self.split_size, dim=2)
@@ -125,25 +138,3 @@ class MLP(nn.Module):
         h = self.act(self.c_fc(x))
         h2 = self.c_proj(h)
         return self.dropout(h2)
-
-
-class Block(nn.Module):
-    def __init__(self, n_ctx, config, scale=False):
-        super().__init__()
-        nx = config.n_embd
-        self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.attn = Attention(nx, n_ctx, config, scale)
-        self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
-
-    def forward(self, x, layer_past=None, attention_mask=None, head_mask=None):
-        output_attn = self.attn(
-            self.ln_1(x), layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask
-        )
-        a = output_attn[0]  # output_attn: a, present, (attentions)
-
-        x = x + a
-        m = self.mlp(self.ln_2(x))
-        x = x + m
-
-        return x  # x, present, (attentions)

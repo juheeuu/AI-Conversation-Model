@@ -56,6 +56,7 @@ if __name__ == '__main__':
         }
         vocab.add_special_tokens(special_tokens)
         config.vocab_size = len(vocab)
+        config.vocab = vocab
         train_data_loader = get_loader(convs=load_pickle(config.convs_path),
                                        vocab=vocab,
                                        is_ptb_model=True,

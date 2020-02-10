@@ -6,7 +6,7 @@ from .rnncells import StackedGRUCell, LSTMSACell
 from .beam_search import Beam
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
 import pickle
-from .multiheadattention import Attention, MLP
+from .multiheadattention import Attention, MLP, Conv1D
 from transformers import OpenAIGPTPreTrainedModel
 
 class BaseRNNDecoder(nn.Module):
@@ -269,10 +269,10 @@ class PTBDecoder(OpenAIGPTPreTrainedModel):
         self.drop = nn.Dropout(config.embd_pdrop)
         self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(config.n_layer)])
 
-    def forward(self, input_ids, encoder_output=None, attention_mask=None, generate=False, decode=False):
+    def forward(self, input_ids, encoder_output=None, attention_mask=None, generate=False, decode=False, src_attn_mask=None):
         # attn_mask (hidden_size, hidden_size)
         input_shape = input_ids.size()
-        input_ids = input_ids.view(-1, input_shape[-1])
+        input_ids = input_ids.view(-1, input_shape[-1]) # (batch_size * max_seq_len, hidden_size)
 
         device = input_ids.device
         position_ids = torch.arange(input_shape[-1], dtype=torch.long, device=device)
@@ -280,8 +280,13 @@ class PTBDecoder(OpenAIGPTPreTrainedModel):
 
         if attention_mask is not None:
             attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-            attention_mask = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
+            attention_mask = attention_mask.to(dtype=next(self.parameters()).dtype)  
             attention_mask = (1.0 - attention_mask) * -10000.0
+
+        if src_attn_mask is not None: 
+            src_attn_mask = src_attn_mask.unsqueeze(1).unsqueeze(2)
+            src_attn_mask = src_attn_mask.to(dtype=next(self.parameters()).dtype)
+            src_attn_mask = (1.0 - src_attn_mask) * -10000.0
 
         inputs_embeds = self.tokens_embed(input_ids)
         position_embeds = self.positions_embed(position_ids)
@@ -291,9 +296,8 @@ class PTBDecoder(OpenAIGPTPreTrainedModel):
         head_mask = [None] * self.config.n_layer
 
         for i, block in enumerate(self.h):
-
             if decode:
-                hidden_states = block(hidden_states, encoder_output, attention_mask, head_mask[i])
+                hidden_states = block(hidden_states, encoder_output, attention_mask, head_mask[i], decode=decode, src_attn_mask=src_attn_mask)
             else: 
                 hidden_states = block(hidden_states, attention_mask, head_mask[i])
 
@@ -311,16 +315,28 @@ class Block(nn.Module):
         super().__init__()
         nx = config.n_embd
         self.attn = Attention(nx, n_ctx, config, scale)
+        self.crossattention = Attention(nx, n_ctx, config, scale, crossLayer=True)
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.mlp = MLP(4 * nx, config)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
 
-    def forward(self, x, encoder_output=None, attention_mask=None, head_mask=None, decode=False):
+        # init for crossAttention
+        if isinstance(self.crossattention, (nn.Linear, nn.Embedding, Conv1D)):
+            # Slightly different from the TF version which uses truncated_normal for initialization
+            # cf https://github.com/pytorch/pytorch/pull/5617
+            self.crossattention.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if isinstance(self.crossattention, (nn.Linear, Conv1D)) and self.crossattention.bias is not None:
+                self.crossattention.bias.data.zero_()
+        elif isinstance(self.crossattention, nn.LayerNorm):
+            self.crossattention.bias.data.zero_()
+            self.crossattention.weight.data.fill_(1.0)
+
+    def forward(self, x, encoder_output=None, attention_mask=None, head_mask=None, decode=False, src_attn_mask=None):
 
         if decode:
             attn_outputs = self.attn(x=x, attention_mask=attention_mask, head_mask=head_mask)
-            attn_outputs2 = self.attn(query=x, key=encoder_output, value=encoder_output, head_mask=head_mask, masked=False, attention_mask=attention_mask)
-            a = attn_outputs[0] + attn_outputs2[0]
+            attn_outputs2 = self.crossattention(query=attn_outputs, key=encoder_output, value=encoder_output, head_mask=head_mask, masked=False, attention_mask=src_attn_mask)
+            a = attn_outputs2[0]
         else: 
             attn_outputs = self.attn(x=x, attention_mask=attention_mask, head_mask=head_mask)
             a = attn_outputs[0]
@@ -330,41 +346,3 @@ class Block(nn.Module):
         h = self.ln_2(n + m)
 
         return h
-
-
-
-class AttentionRoutingLayer(nn.Module):
-    def __init__(self, hidden_size, num_heads, dropout, feedforward_hidden_size, device=None):
-        super(AttentionRoutingLayer, self).__init__()
-        self.hidden_size = hidden_size
-        self.feedforward_hidden_size = feedforward_hidden_size
-        self.num_heads = num_heads
-        self.device = device
-
-        self.OcAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
-        self.OprevAttnLayer = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
-        # Implementation of Feedforward model
-        self.linear1 = nn.Linear(hidden_size, feedforward_hidden_size)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(feedforward_hidden_size, hidden_size)
-
-        self.norm1 = nn.LayerNorm(hidden_size)
-        self.norm2 = nn.LayerNorm(hidden_size)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-
-        self.activation = F.relu
-    
-    def forward(self, Ec, Eprev, Eprev_mask=None, Ec_key_padding_mask=None, generate=False, attn_mask=None):
-        Oc = self.OcAttnLayer(Eprev, Ec, Ec, key_padding_mask=Ec_key_padding_mask)[0]
-        Oprev = self.OprevAttnLayer(Eprev, Eprev, Eprev, attn_mask=attn_mask, key_padding_mask=Eprev_mask)[0]
-
-        Omerge = 2 * Oc + Oprev
-
-        output = Omerge + self.dropout(Eprev)
-        output = self.norm1(output)
-        output2 = self.linear2(self.dropout(self.activation(self.linear1(output))))
-        output = output + self.dropout2(output2)
-        output = self.norm2(output)
-
-        return output
