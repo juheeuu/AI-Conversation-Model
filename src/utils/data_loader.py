@@ -112,7 +112,7 @@ class ConvPTBDataset(ConvDataset):
         input_utterances = input_utterances_list
         input_utterances = self.set_padding(input_utterances)
 
-        ground_truth_target_utterance = target_utterance
+        ground_truth_target_utterance = target_utterance + ['<eos>']
         ground_truth_target_utterance = self.set_padding(ground_truth_target_utterance)
         
         target_utterance = ['<sos>'] + target_utterance
@@ -154,63 +154,3 @@ def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, 
     data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
 
     return data_loader
-
-
-class LMDataSet(Dataset):
-    def __init__(self, tokenizer, file_path):
-
-        self.tokenizer = tokenizer
-
-        cached_path = file_path + '.cached'
-
-        if os.path.exists(cached_path):
-            logger.info("Loading features from cached file %s", cached_path)
-            with open(cached_path, "rb") as fb: 
-                self.examples = pickle.load(fb)
-        else: 
-            logger.info("Creating features from dataset file at %s", file_path)
-
-            self.examples = []
-
-            with open(file_path, encoding="utf-8") as f: 
-                text = f.readlines()
-                for line in text: 
-                    line = line.strip()
-                    line = self.set_padding(line)
-                    self.examples.append(line)
-
-            logger.info("Saving fatures into cached file %s", cached_path)
-            with open(cached_path, "wb") af f: 
-                pickle.dump(self.examples, f, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    def set_padding(self, sentence, max_seq_len=512): 
-        """
-        Parameters
-        sentence: str of sentence
-        max_seq_len: int 
-        """
-
-        sentence = self.tokenizer.EncodeAsPieces(sentence)
-        if len(utterance) <= max_seq_len:
-            sentence = sentence + ['<pad>' for _ in range(max_seq_len - len(sentence))]
-        else:
-            sentence.reverse()
-            sentence = sentence[:max_seq_len]
-            sentence.reverse()
-        return [self.tokenizer.PieceToId(tok) for tok in sentence]
-
-    def __getitem__(self, index):
-        return self.examples[index]
-
-
-
-
-def get_lm_loader(data_path, spm_model, batch_size=100, shuffle=True):
-
-    assert os.path.exists(data_path)
-    assert os.path.exists(spm_model)
-
-    tokenizer = spm.SentencePieceProcessor()
-    tokenizer.Load(spm_model)
-
-    return LMDataSet(tokenizer, data_path)
