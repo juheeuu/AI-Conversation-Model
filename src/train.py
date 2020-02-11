@@ -36,19 +36,14 @@ if __name__ == '__main__':
                                     utterances_length=load_pickle(config.utterances_length_path),
                                     vocab=vocab, convs_users=train_users,
                                     batch_size=config.batch_size,
-                                    is_ptb_model=(config.model=="PTB"))
+                                    is_ptb_model=(config.model=="PTB") or (config.model=="Transformer"))
 
         eval_data_loader = get_loader(convs=load_pickle(val_config.convs_path),
                                     convs_length=load_pickle(val_config.conversations_length_path),
                                     utterances_length=load_pickle(val_config.utterances_length_path),
                                     vocab=vocab, shuffle=False, convs_users=eval_users,
                                     batch_size=val_config.eval_batch_size,
-                                    is_ptb_model=(config.model=="PTB"))
-    elif config.data_name == "lm":
-        train_data_loader = get_lm_loader(config.lm_data_path, config.spm_model_path, batch_size=config.batch_size)
-        eval_data_loader = None
-        vocab = spm.SentencePieceProcessor()
-        vocab.Load(config.spm_model_path)
+                                    is_ptb_model=(config.model=="PTB") or (config.model=="Transformer"))
 
     else: 
         raise ValueError("{} dataset doesn't support".format(config.data))
