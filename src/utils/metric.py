@@ -13,7 +13,6 @@ def bleu_compute(ground_truth_utter, answer_sample):
     return sentence_bleu([ground_truth_utter_list], answer_sample_list, smoothing_function=SmoothingFunction().method7,
                          weights=[1./3, 1./3, 1./3])
 
-
 def rouge_compute(ground_truth_utter, answer_sample):
     rouge = Rouge()
     scores = rouge.get_scores(ground_truth_utter, answer_sample)
@@ -38,4 +37,14 @@ def embedding_compute(ground_truth_utter, answer_sample, word2id, embedding):
     if math.isnan(cosine):
         raise ValueError
     return cosine
+
+def dist_compute(all_response, dist_n=1):
+    # TODO support various dist_n 
+    if not all_response:
+        return 0.0 
+
+    ngrams = zip(*[all_response[i:] for i in range(dist_n)])
+    distinct_ngrams = set(ngrams)
+    return len(distinct_ngrams) / len(all_response)
+
 

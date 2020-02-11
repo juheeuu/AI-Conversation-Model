@@ -1,7 +1,7 @@
 import codecs
 import numpy as np
 import sys
-from utils import bleu_compute, rouge_compute, rouge_names, to_var, embedding_compute
+from utils import bleu_compute, rouge_compute, rouge_names, to_var, embedding_compute, dist_compute
 from scipy.stats import sem
 import tabulate
 import torch.nn as nn 
@@ -14,6 +14,7 @@ def main():
     length_history = list()
     rouge_history = list()
     embedding_list = list()
+    dist1_list = list()
     conv_idx_match = 0
     convs_top_answer = list()
     convs_ground_truth = list()
@@ -59,10 +60,12 @@ def main():
             if context_utter == "" or top_answer == "" or ground_truth_utter == "":
                 continue
 
+            dist1_list += top_answer.split()
+
             try: 
                 embedding_list.append(embedding_compute(ground_truth_utter, top_answer, word2id, embedding))
             except ValueError:
-                embedding_list.append(0) 
+                embedding_list.append(0)             
 
             try:
                 bleu_list.append(bleu_compute(ground_truth_utter, top_answer))
@@ -89,11 +92,13 @@ def main():
     stderr_rouge = sem(rouge_mat, axis=0)
     stderr_embedding = sem(embedding_mat, axis=0)
 
+    dist1 = dist_compute(dist1_list)
 
     output_str_list = list()
     output_str_list.append(["Length", avg_length, stderr_length])
     output_str_list.append(["BLEU", avg_bleu, stderr_bleu])
     output_str_list.append(["Embedding", avg_embedding, stderr_embedding])
+    output_str_list.append(["Dist1", dist1, '-' ])
     for one_name, one_avg, one_stderr in zip(rouge_names(), avg_rouge, stderr_rouge):
         output_str_list.append([one_name, one_avg, one_stderr])
 

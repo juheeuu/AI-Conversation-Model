@@ -107,7 +107,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
     parser.add_argument('--rnncell', type=str, default='gru')
-    parser.add_argument('--num_layers', type=int, default=12)
+    parser.add_argument('--num_layers', type=int, default=1)
     parser.add_argument('--embedding_size', type=int, default=512)
     parser.add_argument('--tie_embedding', type=str2bool, default=True)
     parser.add_argument('--encoder_hidden_size', type=int, default=512)
@@ -120,6 +120,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--activation', type=str, default='Tanh')
     parser.add_argument('--users', type=str2bool, default=False)
     parser.add_argument('--num_heads', type=int, default=8)
+    parser.add_argument('--d_model', type=int, default=512)
 
     parser.add_argument('--z_utter_size', type=int, default=100)
     parser.add_argument('--z_conv_size', type=int, default=100)
