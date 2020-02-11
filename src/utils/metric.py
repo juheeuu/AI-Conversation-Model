@@ -39,10 +39,8 @@ def embedding_compute(ground_truth_utter, answer_sample, word2id, embedding):
     return cosine
 
 def dist_compute(all_response, dist_n=1):
-    # TODO support various dist_n 
     if not all_response:
         return 0.0 
-
     ngrams = zip(*[all_response[i:] for i in range(dist_n)])
     distinct_ngrams = set(ngrams)
     return len(distinct_ngrams) / len(all_response)
