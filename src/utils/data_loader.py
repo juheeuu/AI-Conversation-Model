@@ -112,20 +112,16 @@ class ConvPTBDataset(ConvDataset):
         input_utterances = input_utterances_list
         input_utterances = self.set_padding(input_utterances)
 
-        ground_truth_target_utterance = target_utterance + ['<eos>']
-        ground_truth_target_utterance = self.set_padding(ground_truth_target_utterance)
-        
-        target_utterance = ['<sos>'] + target_utterance
+        target_utterance = ['<sos>'] + target_utterance + ['<eos>']
         target_utterance = self.set_padding(target_utterance)
             
-        input_utterances_mask = [tok == '<pad>' for tok in input_utterances]
-        target_utterance_mask = [tok == '<pad>' for tok in target_utterance]
+        input_utterances_mask = [0 if tok == '<pad>' else 1 for tok in input_utterances]
+        target_utterance_mask = [0 if tok == '<pad>' else 1 for tok in target_utterance]
 
         input_utterances = self.vocab.sent2id(input_utterances)
         target_utterance = self.vocab.sent2id(target_utterance)
-        ground_truth_target_utterance = self.vocab.sent2id(ground_truth_target_utterance)
 
-        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask, ground_truth_target_utterance
+        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask
     
     def set_padding(self, utterance, max_seq_len=512):
         if len(utterance) <= max_seq_len:
