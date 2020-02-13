@@ -88,15 +88,6 @@ class ConvPTBDataset(ConvDataset):
         self.utterances_length = utterances_length
 
     def __getitem__(self, index):
-        """
-        Extract one conversation
-        :param index: index of the conversation
-        :return: utterances, conversation_length, utterance_length
-        """
-
-        """
-        it need <sep> token for each conversation 
-        """
         utterances = self.convs[index]
         target_utterance = utterances[-1]
         input_utterances = utterances[:-1]
@@ -132,15 +123,55 @@ class ConvPTBDataset(ConvDataset):
             utterance.reverse()
         return utterance
 
+class Cornell2ZhengDataset(Dataset):
+    def __init__(self, convs, vocab, config):
+        self.vocab = vocab 
+        self.convs = convs 
+        self.len = len(convs)
+        self.max_seq_len = config.max_seq_len
+    
+    def __getitem__(self, index):
+        conv = self.convs[index]
+        input_utters = conv[:-1]
+        target_utter = conv[-1]
+
+        inputs = []
+        for utter in input_utters:
+            inputs += self.vocab.encode(utter)
+            inputs += [self.vocab.eos_token_id, self.vocab.sep_token_id]
+        inputs = inputs[:-1]
+
+        target_utter = [self.vocab.bos_token_id] + self.vocab.encode(target_utter) + [self.vocab.eos_token_id]
+
+        input_utter, input_mask = self._setting(inputs)
+        target_utter, target_mask = self._setting(target_utter)
+
+        return input_utter, input_mask, target_utter, target_mask
+
+    def __len__(self):
+        return self.len 
+    
+    def _setting(self, text):
+        if len(text) <= self.max_seq_len:
+            text = text + [self.vocab.pad_token_id for _ in range(self.max_seq_len - len(text))]
+        else:
+            text = text[len(text) - self.max_seq_len:]
+            assert len(text) == self.max_seq_len
+
+        text_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in text ]
+        return text, text_mask
 
 
-def get_loader(convs, convs_length, utterances_length, vocab, convs_users=None, batch_size=100, shuffle=True, is_ptb_model=False):
+def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_users=None, batch_size=100, 
+                shuffle=True, is_ptb_model=False, model=None, dataset=None, config=None):
     def collate_fn(data):
         # Sort by conversation length (descending order) to use 'pack_padded_sequence'
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
 
-    if convs_users is None and not is_ptb_model:
+    if model == "ZHENG" and dataset == "cornell2":
+        dataset = Cornell2ZhengDataset(convs, vocab, config)
+    elif convs_users is None and not is_ptb_model:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
     elif is_ptb_model:
         dataset = ConvPTBDataset(convs, utterances_length, vocab)
