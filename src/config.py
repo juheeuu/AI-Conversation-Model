@@ -149,6 +149,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
     parser.add_argument('--lm_data_path', type=str, default='all.merge')
     parser.add_argument('--spm_model_path', type=str, default='spm.model')
+    parser.add_argument('--pretrained', type=bool, default=True)
 
     if parse:
         kwargs = parser.parse_args()

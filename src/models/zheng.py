@@ -5,44 +5,63 @@ import layers
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
 import torch.nn.functional as F
 import torch.nn as nn
-
-# TODO: Support huggingface OpenAI-GPT
+from transformers import OpenAIGPTModel, OpenAIGPTConfig, OpenAIGPTPreTrainedModel
 
 class ZHENG(nn.Module):
     def __init__(self, config):
         super(ZHENG, self).__init__()
 
-        self.transformer = TransformerModule(
-            config.vocab_size, config.embedding_size, config.pad_id,
-            config.max_seq_len, config.embed_dropout, config.n_heads,
-            config.dropout, config.attn_dropout, config.ff_dropout,
-            config.num_layers
-        )
+        if config.pretrained:
+            gpt_config = OpenAIGPTConfig.from_pretrained('openai-gpt')
+            transformer = TransformerModule(gpt_config).from_pretrained('openai-gpt')
+            # for DataParallel
+            model_to_resize = transformer.module if hasattr(transformer, "module") else transformer
+            model_to_resize.resize_token_embeddings(config.vocab_size)
+            self.transformer = model_to_resize
+        else:
+            self.transformer = TransformerModule(config)
 
         self.linear = nn.Linear(config.embedding_size, config.vocab_size, bias=False)
+
+        # tie weights
         self.linear.weight = self.transformer.tokens_embed.weight
     
-    def forward(self, x, x_maks, prev, prev_mask):
+    def forward(self, x, x_mask, prev, prev_mask):
         enc_hidden = self.transformer(prev, prev_mask)
         lm_output = self.linear(enc_hidden)
-        conv_output = self.linear(self.transformer(x, x_maks, enc_hidden, prev_mask))
+        conv_output = self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask))
 
         return lm_output, conv_output
 
-class TransformerModule(nn.Module):
-    def __init__(self, vocab_size, embedding_size, pad_id, max_seq_len, embed_dropout,
-                n_heads, dropout, attn_dropout, ff_dropout, num_layers): 
-        super(TransformerModule, self).__init__()
-        self.tokens_embed = nn.Embedding(vocab_size, embedding_size, padding_idx=pad_id)
-        self.positions_embed = nn.Embedding(max_seq_len + 1, embedding_size, padding_idx=0)
+class TransformerModule(OpenAIGPTPreTrainedModel):
+    def __init__(self, config): 
+        super(TransformerModule, self).__init__(config)
+
+        pretrained = True if isinstance(config, OpenAIGPTConfig) else False
+
+        embedding_size = config.n_embd if pretrained else config.embedding_size
+        max_seq_len = config.n_positions if pretrained else config.max_seq_len
+        n_heads = config.n_head if pretrained else config.n_heads 
+        embed_dropout = config.embd_pdrop if pretrained else config.embed_dropout 
+        dropout = config.embd_pdrop if pretrained else config.dropout
+        attn_dropout = config.attn_pdrop if pretrained else config.attn_dropout
+        ff_dropout = config.resid_pdrop if pretrained else config.ff_dropout
+        num_layers = config.n_layer if pretrained else config.num_layers
+
+        self.tokens_embed = nn.Embedding(config.vocab_size, embedding_size)
+        self.positions_embed = nn.Embedding(max_seq_len, embedding_size, padding_idx=0)
 
         self.drop = nn.Dropout(embed_dropout)
         self.h = nn.ModuleList(
-            [TransformerBlock(embedding_size, n_heads, dropout, attn_dropout, ff_dropout, max_seq_len) for _ in range(num_layers)])
+            [TransformerBlock(embedding_size, n_heads, dropout,
+                            attn_dropout, ff_dropout, max_seq_len) for _ in range(num_layers)])
 
-    def _init_weights(self):
-        nn.init.normal_(self.embeddings.weight, std=0.02)
-        nn.init.normal_(self.pos_embedding.weight, std=0.02)
+        if pretrained: 
+            self._init_weights_for_not_pretrained()
+        
+    def _init_weights_for_not_pretrained(self):
+        nn.init.normal_(self.tokens_embed.weight, std=0.02)
+        nn.init.normal_(self.positions_embed.weight, std=0.02)
 
     def forward(self, x, x_mask=None, enc_hidden=None, enc_hidden_mask=None):
         device = x.device
@@ -72,6 +91,12 @@ class TransformerModule(nn.Module):
             hidden_states = block(hidden_states, x_mask, enc_hidden=enc_hidden, enc_hidden_mask=enc_hidden_mask)
 
         return hidden_states
+
+    def get_input_embeddings(self):
+        return self.tokens_embed
+    
+    def set_input_embeddings(self, new_embeddings):
+        self.tokens_embed = new_embeddings
 
     
 class TransformerBlock(nn.Module):
