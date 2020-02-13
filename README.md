@@ -1,6 +1,9 @@
 # Conversation Model
 
-various conversational model
+conversational model
+
+base code written by NoSyu
+https://github.com/NoSyu/
 
 ## Models
 ### HRED 
