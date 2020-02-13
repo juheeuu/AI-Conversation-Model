@@ -110,6 +110,7 @@ class SolverZHENG(Solver):
 
             print('\n<Validation>...')
             val_loss, val_lm_loss, val_conv_loss = self.evaluate()
+            self.validation_loss = val_loss
 
             if epoch_i % self.config.plot_every_epoch == 0:
                 self.writer.add_scalar('Val/lm_loss', val_lm_loss, epoch_i + 1)
@@ -170,9 +171,9 @@ class SolverZHENG(Solver):
 
             assert not isnan(batch_loss.item())
         
-            epoch_batch_loss = (i * epoch_batch_loss + batch_loss.item()) / (i + 1)
-            epoch_lm_loss = (i * epoch_lm_loss + lm_loss.item()) / (i + 1)
-            epoch_conv_loss = (i * epoch_conv_loss + conv_loss.item()) / (i + 1)
+            epoch_batch_loss = (batch_i * epoch_batch_loss + batch_loss.item()) / (batch_i + 1)
+            epoch_lm_loss = (batch_i * epoch_lm_loss + lm_loss.item()) / (batch_i + 1)
+            epoch_conv_loss = (batch_i * epoch_conv_loss + conv_loss.item()) / (batch_i + 1)
             
         print(f'Validation loss: {epoch_batch_loss:.3f}\n')
 
@@ -229,7 +230,6 @@ class SolverZHENG(Solver):
             ground_truth = list(ground_truth_target_utterance)[0]
             ground_truth = self.vocab.decode(ground_truth)
             ground_truth_history.append(ground_truth)
-
 
         
         target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,
