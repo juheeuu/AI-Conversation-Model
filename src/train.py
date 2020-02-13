@@ -1,4 +1,4 @@
-from utils import get_loader, get_lm_loader
+from utils import get_loader
 from config import get_config
 from utils import Vocab
 import os
@@ -18,6 +18,7 @@ if __name__ == '__main__':
         vocab = Vocab()
         vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
         config.vocab_size = vocab.vocab_size
+        config.pad_id = vocab.pad_id
 
         print(f'Vocabulary size: {vocab.vocab_size}')
 
@@ -36,14 +37,14 @@ if __name__ == '__main__':
                                     utterances_length=load_pickle(config.utterances_length_path),
                                     vocab=vocab, convs_users=train_users,
                                     batch_size=config.batch_size,
-                                    is_ptb_model=(config.model=="PTB") or (config.model=="Transformer"))
+                                    is_ptb_model=(config.model=="ZHENG") or (config.model=="Transformer"))
 
         eval_data_loader = get_loader(convs=load_pickle(val_config.convs_path),
                                     convs_length=load_pickle(val_config.conversations_length_path),
                                     utterances_length=load_pickle(val_config.utterances_length_path),
                                     vocab=vocab, shuffle=False, convs_users=eval_users,
                                     batch_size=val_config.eval_batch_size,
-                                    is_ptb_model=(config.model=="PTB") or (config.model=="Transformer"))
+                                    is_ptb_model=(config.model=="ZHENG") or (config.model=="Transformer"))
 
     else: 
         raise ValueError("{} dataset doesn't support".format(config.data))

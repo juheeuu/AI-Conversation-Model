@@ -20,6 +20,7 @@ class Vocab(object):
         self.vocab_size = 0
         self.freqdist = FreqDist()
         self.tokenizer = tokenizer
+        self.pad_id = PAD_ID
 
     def update(self, max_size=None, min_freq=1):
         self.id2word = {

@@ -14,7 +14,7 @@ from subprocess import call
 
 class SolverZHENG(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
-        super(SolverPTB, self).__init__(config, train_data_loader, eval_data_loader, vocab, is_train, model)
+        super(SolverZHENG, self).__init__(config, train_data_loader, eval_data_loader, vocab, is_train, model)
     
     def train(self):
         epoch_loss_history = list()
@@ -38,7 +38,7 @@ class SolverZHENG(Solver):
         )
 
         if self.config.n_gpu > 1:
-            self.model = torch.nn.DataParallel(self.model, device_ids=[0, 1]).to(self.config.device)
+            self.model = torch.nn.DataParallel(self.model).to(self.config.device)
         else:
             self.model = self.model.to(self.config.device)
 
@@ -49,7 +49,7 @@ class SolverZHENG(Solver):
 
             epoch_lm_loss = 0.0 
             epoch_conv_loss = 0.0 
-            epoch_loss = 0.0 
+            epoch_batch_loss = 0.0 
 
             for batch_i, (input_utterances,
                           input_utterances_mask,
@@ -66,20 +66,19 @@ class SolverZHENG(Solver):
 
                 loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
 
-                # get encoder hidden state
-                enc_hidden = self.model.encode(input_utterances, input_utterances_mask)
+                target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
+                target_mask = target_utterance_mask[..., :-1].contiguous()
+
+                lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask)
                 
                 # 1. Calculate Language Model Loss 
-                generated = self.model.generate(enc_hidden)
-                outputs, labels = generated[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
-                lm_loss = loss_fn(outputs.view(-1, outputs.shape(-1)), labels.view(-1))
+                outputs, labels = lm_output[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
+                lm_loss = loss_fn(outputs.view(-1, outputs.size(-1)), labels.view(-1))
                 
                 # 2. Calculate Conv Loss 
-                prevs, nexts = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
-                prev_mask = target_utterance_mask[..., :-1].contiguous()
-                outputs = self.model.decode(prevs, prev_mask, enc_hidden, input_utterances_mask)
-                conv_loss = loss_fn(outputs.view(-1, outputs.shape(-1)), nexts.view(-1))
+                conv_loss = loss_fn(conv_output.view(-1, outputs.size(-1)), gt_target.view(-1))
 
+                # 3. Total Loss 
                 batch_loss = lm_loss * 0.2 + conv_loss
 
                 assert not isnan(batch_loss.item())
@@ -87,10 +86,9 @@ class SolverZHENG(Solver):
                 if self.config.n_gpu > 1: 
                     batch_loss = batch_loss.mean()
 
-
-                epoch_lm_loss = (i * epoch_lm_loss + lm_loss.item()) / (i + 1)
-                epoch_conv_loss = (i * epoch_conv_loss + conv_loss.item()) / (i + 1)
-                epoch_batch_loss = (i * epoch_batch_loss + batch_loss.item()) / (i + 1)
+                epoch_lm_loss = (batch_i * epoch_lm_loss + lm_loss.item()) / (batch_i + 1)
+                epoch_conv_loss = (batch_i * epoch_conv_loss + conv_loss.item()) / (batch_i + 1)
+                epoch_batch_loss = (batch_i * epoch_batch_loss + batch_loss.item()) / (batch_i + 1)
 
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
@@ -149,24 +147,22 @@ class SolverZHENG(Solver):
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
-                ground_truth_target_utterance = torch.LongTensor(ground_truth_target_utterance).to(self.config.device)
 
             loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
 
-            # get encoder hidden state
-            enc_hidden = self.model.encode(input_utterances, input_utterances_mask)
+            target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
+            target_mask = target_utterance_mask[..., :-1].contiguous()
+
+            lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask)
             
             # 1. Calculate Language Model Loss 
-            generated = self.model.generate(enc_hidden)
-            outputs, labels = generated[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
-            lm_loss = loss_fn(outputs.view(-1, outputs.shape(-1)), labels.view(-1))
+            outputs, labels = lm_output[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
+            lm_loss = loss_fn(outputs.view(-1, outputs.size(-1)), labels.view(-1))
             
             # 2. Calculate Conv Loss 
-            prevs, nexts = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
-            prev_mask = target_utterance_mask[..., :-1].contiguous()
-            outputs = self.model.decode(prevs, prev_mask, enc_hidden, input_utterances_mask)
-            conv_loss = loss_fn(outputs.view(-1, outputs.shape(-1)), nexts.view(-1))
+            conv_loss = loss_fn(conv_output.view(-1, outputs.size(-1)), gt_target.view(-1))
 
+            # 3. Total Loss 
             batch_loss = lm_loss * 0.2 + conv_loss
 
             if self.config.n_gpu > 1:

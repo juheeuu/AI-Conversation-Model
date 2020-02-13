@@ -5,6 +5,7 @@ import layers
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
 import torch.nn.functional as F
 import torch.nn as nn
+import math 
 
 class Conv1D(nn.Module):
     def __init__(self, nf, nx):
@@ -28,9 +29,12 @@ def gelu(x):
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 class MultiheadAttention(nn.Module):
-    def __init__(self, n_features, n_heads, attn_dropout, ff_dropout):
+    def __init__(self, n_features, n_heads, attn_dropout, ff_dropout, max_seq_len):
         super(MultiheadAttention, self).__init__()
         assert n_features % n_heads == 0    
+        self.register_buffer("bias", torch.tril(torch.ones(max_seq_len, max_seq_len)).view(1, 1, max_seq_len, max_seq_len))
+        self.n_features = n_features
+        self.n_head = n_heads
 
         self.c_attn = Conv1D(n_features * 3, n_features)
         self.c_proj = Conv1D(n_features, n_features)
@@ -78,29 +82,30 @@ class MultiheadAttention(nn.Module):
         else:
             return x.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
     
-    def forward(self, query, key, value, attn_mask=None, head_mask=None)
-        qkv_same = (query.data_ptr() == key.data_ptr() == value.data_ptr())
-        kv_same = (key.data_ptr() == value.data_ptr())
-
+    def forward(self, query, key, value, attn_mask=None, head_mask=None, qkv_same=True):
         if qkv_same:
-            query, key, value = self.qkv_proj(query).split(self.n_features, dim=-1)
-            apply_future_mask = True  # self-attention
-        elif kv_same:
-            # TODO: 여기 따져서 수정하기 
-            q_w, q_b = self.qkv_proj.weight[:self.n_features, :], self.qkv_proj.bias[:self.n_features]
-            query = F.linear(query, q_w, q_b)
-            kv_w, kv_b = self.qkv_proj.weight[self.n_features:, :], self.qkv_proj.bias[self.n_features:]
-            key, value = F.linear(key, kv_w, kv_b).split(self.n_features, dim=-1)
-            apply_future_mask = False
+            query, key, value = self.c_attn(query).split(self.n_features, dim=-1)
+            apply_future_mask = True 
         else:
-            assert False
+            # Calculate query key value respectively
+            size_out = query.size()[:-1] + (self.n_features,)
+            q_w, q_b = self.c_attn.weight[:, :self.n_features], self.c_attn.bias[:self.n_features]
+            query = torch.addmm(q_b, query.view(-1, query.size(-1)), q_w).view(size_out)
+
+            size_out = key.size()[:-1] + (self.n_features,)
+            k_w, k_b = self.c_attn.weight[:, self.n_features:self.n_features * 2], self.c_attn.bias[self.n_features:self.n_features * 2]
+            key = torch.addmm(k_b, key.view(-1, key.size(-1)), k_w).view(size_out)
+
+            size_out = value.size()[:-1] + (self.n_features,)
+            v_w, v_b = self.c_attn.weight[:, self.n_features * 2:], self.c_attn.bias[self.n_features * 2:]
+            value = torch.addmm(v_b, value.view(-1, value.size(-1)), v_w).view(size_out)
+            apply_future_mask = False
 
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
 
-        attn_outputs = self._attn(query, key, value, attention_mask, head_mask, masked=apply_future_mask)
-        a = attn_outputs[0]
+        a = self._attn(query, key, value, attn_mask, head_mask, masked=apply_future_mask)
 
         a = self.merge_heads(a)
         a = self.c_proj(a)

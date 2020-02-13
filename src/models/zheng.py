@@ -23,19 +23,11 @@ class ZHENG(nn.Module):
         self.linear.weight = self.transformer.tokens_embed.weight
     
     def forward(self, x, x_maks, prev, prev_mask):
-        enc_hidden = self.encode(prev, prev_mask)
-        return self.decode(x, x_mask, enc_hidden, prev_mask)
+        enc_hidden = self.transformer(prev, prev_mask)
+        lm_output = self.linear(enc_hidden)
+        conv_output = self.linear(self.transformer(x, x_maks, enc_hidden, prev_mask))
 
-    def encode(self, x, x_mask):
-        return self.transformer(x, x_mask) 
-    
-    def decode(self, x, x_mask, enc_hidden, enc_hidden_mask):
-        x = self.encode(x, x_mask, enc_hidden, enc_hidden_mask)
-        return self.linear(x)
-
-    def generate(self, enc_hidden):
-        return self.linear(enc_hidden)
-
+        return lm_output, conv_output
 
 class TransformerModule(nn.Module):
     def __init__(self, vocab_size, embedding_size, pad_id, max_seq_len, embed_dropout,
@@ -46,7 +38,7 @@ class TransformerModule(nn.Module):
 
         self.drop = nn.Dropout(embed_dropout)
         self.h = nn.ModuleList(
-            [TransformerBlock(embedding_size, n_heads, dropout, attn_dropout, ff_dropout) for _ in range(num_layers)])
+            [TransformerBlock(embedding_size, n_heads, dropout, attn_dropout, ff_dropout, max_seq_len) for _ in range(num_layers)])
 
     def _init_weights(self):
         nn.init.normal_(self.embeddings.weight, std=0.02)
@@ -77,27 +69,29 @@ class TransformerModule(nn.Module):
         hidden_states = self.drop(hidden_states)
 
         for i, block in enumerate(self.h):
-            hidden_states = block(x, x_mask, c=enc_hidden, c_mask=enc_hidden_mask)
+            hidden_states = block(hidden_states, x_mask, enc_hidden=enc_hidden, enc_hidden_mask=enc_hidden_mask)
 
         return hidden_states
 
     
 class TransformerBlock(nn.Module):
-    def __init__(self, n_features, n_heads, dropout, attn_dropout, ff_dropout):
+    def __init__(self, n_features, n_heads, dropout, attn_dropout, ff_dropout, max_seq_len):
         super(TransformerBlock, self).__init__()
 
         self.ln_1 = nn.LayerNorm(n_features)
-        self.attn = layers.MultiheadAttention(n_features, n_heads, attn_dropout, ff_dropout)
+        self.attn = layers.MultiheadAttention(n_features, n_heads, attn_dropout, ff_dropout, max_seq_len)
         self.ln_2 = nn.LayerNorm(n_features)
         self.mlp = layers.MLP(4 * n_features, n_features, ff_dropout)
 
-    def forward(self, x, attention_mask=None, head_mask=None, c=None, c_mask=None):
+    def forward(self, x, attention_mask=None, head_mask=None, enc_hidden=None, enc_hidden_mask=None):
+
         a = self.attn (
             self.ln_1(x), self.ln_1(x), self.ln_1(x), attn_mask=attention_mask, head_mask=head_mask
         )
 
         if enc_hidden is not None: 
-            a += self.attn(self.ln_1(x), self.ln_1(c), self.ln_1(c), attn_mask=c_mask, head_mask=head_mask)
+            a += self.attn(self.ln_1(x), self.ln_1(enc_hidden), self.ln_1(enc_hidden),
+                            attn_mask=enc_hidden_mask, head_mask=head_mask, qkv_same=False)
 
         x = x + a 
         m = self.mlp(self.ln_2(x))
