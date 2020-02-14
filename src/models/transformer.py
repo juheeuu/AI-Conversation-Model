@@ -32,16 +32,16 @@ class PositionalEmbedding(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, config):
-        super(PTB, self).__init__()
+        super(Transformer, self).__init__()
         self.config = config 
         self.device = self.config.device 
 
-        self.tok_embedding = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=PAD_ID)
+        self.tok_embedding = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=self.config.pad_id)
         self.pos_embedding = PositionalEmbedding(d_model=config.embedding_size, max_len=config.max_seq_len)
 
         self.transformer = nn.Transformer(
             d_model=config.d_model,
-            nhead=config.num_heads, 
+            nhead=config.n_heads, 
             num_encoder_layers=config.num_layers,
             num_decoder_layers=config.num_layers,
             dim_feedforward=config.feedforward_hidden_size,
@@ -58,7 +58,7 @@ class Transformer(nn.Module):
             nn.init.kaiming_uniform_(layer.weight)
     
     
-    def forward(self, input_utterances, target_utterance):
+    def forward(self, input_utterances, input_mask, target_utterance, target_mask):
 
         enc_embed = self.tok_embedding(input_utterances) + self.pos_embedding(input_utterances)
         dec_embed = self.tok_embedding(target_utterance) + self.pos_embedding(target_utterance)
@@ -66,9 +66,9 @@ class Transformer(nn.Module):
         enc_embed = torch.einsum('ijk->jik', enc_embed)
         dec_embed = torch.einsum('ijk->jik', dec_embed)
 
-        src_key_padding_mask = input_utterances == PAD_ID 
-        tgt_key_padding_mask = target_utterance == PAD_ID 
-        memory_key_padding_mask = src_key_padding_mask 
+        src_key_padding_mask = input_mask
+        tgt_key_padding_mask = target_mask
+        memory_key_padding_mask = input_mask 
         tgt_mask = self.transformer.generate_square_subsequent_mask(target_utterance.size(1)).to(self.device)
 
 

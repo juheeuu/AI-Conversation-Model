@@ -123,7 +123,7 @@ class ConvPTBDataset(ConvDataset):
             utterance.reverse()
         return utterance
 
-class Cornell2ZhengDataset(Dataset):
+class Cornell2TransformerBasedDataset(Dataset):
     def __init__(self, convs, vocab, config):
         self.vocab = vocab 
         self.convs = convs 
@@ -137,11 +137,11 @@ class Cornell2ZhengDataset(Dataset):
 
         inputs = []
         for utter in input_utters:
-            inputs += self.vocab.encode(utter)
+            inputs += self.vocab.encode(utter, max_length=self.max_seq_len)
             inputs += [self.vocab.eos_token_id, self.vocab.sep_token_id]
         inputs = inputs[:-1]
 
-        target_utter = [self.vocab.bos_token_id] + self.vocab.encode(target_utter) + [self.vocab.eos_token_id]
+        target_utter = [self.vocab.bos_token_id] + self.vocab.encode(target_utter, max_length=self.max_seq_len-2) + [self.vocab.eos_token_id]
 
         input_utter, input_mask = self._setting(inputs)
         target_utter, target_mask = self._setting(target_utter)
@@ -169,8 +169,8 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
 
-    if model == "ZHENG" and dataset == "cornell2":
-        dataset = Cornell2ZhengDataset(convs, vocab, config)
+    if (model == "ZHENG" or model == "Transformer")  and dataset == "cornell2":
+        dataset = Cornell2TransformerBasedDataset(convs, vocab, config)
     elif convs_users is None and not is_ptb_model:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
     elif is_ptb_model:

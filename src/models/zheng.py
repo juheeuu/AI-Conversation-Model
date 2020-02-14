@@ -11,15 +11,17 @@ class ZHENG(nn.Module):
     def __init__(self, config):
         super(ZHENG, self).__init__()
 
+        gpt_config = OpenAIGPTConfig.from_pretrained('openai-gpt')
+
         if config.pretrained:
-            gpt_config = OpenAIGPTConfig.from_pretrained('openai-gpt')
             transformer = TransformerModule(gpt_config).from_pretrained('openai-gpt')
-            # for DataParallel
-            model_to_resize = transformer.module if hasattr(transformer, "module") else transformer
-            model_to_resize.resize_token_embeddings(config.vocab_size)
-            self.transformer = model_to_resize
         else:
-            self.transformer = TransformerModule(config)
+            transformer = TransformerModule(gpt_config)
+
+        # for DataParallel 
+        model_to_resize = transformer.module if hasattr(transformer, "module") else transformer
+        model_to_resize.resize_token_embeddings(config.vocab_size)
+        self.transformer = model_to_resize
 
         self.linear = nn.Linear(config.embedding_size, config.vocab_size, bias=False)
 

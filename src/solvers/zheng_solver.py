@@ -76,7 +76,7 @@ class SolverZHENG(Solver):
                 lm_loss = loss_fn(outputs.view(-1, outputs.size(-1)), labels.view(-1))
                 
                 # 2. Calculate Conv Loss 
-                conv_loss = loss_fn(conv_output.view(-1, outputs.size(-1)), gt_target.view(-1))
+                conv_loss = loss_fn(conv_output.view(-1, conv_output.size(-1)), gt_target.view(-1))
 
                 # 3. Total Loss 
                 batch_loss = lm_loss * 0.2 + conv_loss
