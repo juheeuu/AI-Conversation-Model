@@ -179,7 +179,7 @@ class SolverZHENG(Solver):
 
         return epoch_batch_loss, epoch_lm_loss, epoch_conv_loss
 
-    # TODO: Fix this 
+    # TODO: Inference with greedy.. 
     def export_samples(self, beam_size=4):
         self.model.config.beam_size = beam_size
         self.model.eval()
@@ -192,43 +192,52 @@ class SolverZHENG(Solver):
 
         for batch_i, (input_utterances,
                       input_utterances_mask,
-                      _,
-                      _,
-                      ground_truth_target_utterance) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      target_utterance,
+                      _) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
 
             context_history.append(input_utterances)
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
-                input_utterances_mask = torch.BoolTensor(input_utterances_mask).to(self.config.device)
+                input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
 
             max_seq_len =self.model.config.max_seq_len 
 
             enc_input = input_utterances.unsqueeze(-1)
-            dec_input = torch.LongTensor([[SOS_ID]]).to(self.config.device)
+
+            enc_hidden = self.model.encode(input_utterances, input_utterances_mask)
+
+            dec_input = torch.LongTensor([[self.config.vocab.bos_token_id]]).to(self.config.device)
 
             # Greedy Decoding 
             for i in range(max_seq_len):
-                y_pred = self.model(input_utterances, dec_input)
+                y_pred = self.model.decode(dec_input, None, enc_hidden, input_utterances_mask)
                 y_pred_ids = y_pred.max(dim=-1)[1]
 
                 new_word = y_pred_ids.tolist()[0][-1]
 
-                if new_word == EOS_ID or i == max_seq_len - 1:
+                if new_word == self.config.vocab.eos_token_id or i == max_seq_len - 1:
                     break
 
                 dec_input = torch.cat((dec_input, torch.LongTensor([[new_word]]).to(self.config.device)), dim=-1)
             
             labels = y_pred_ids.tolist()[0]
-            labels = self.vocab.decode(labels)
 
+            labels = self.vocab.convert_ids_to_tokens(labels)
+            labels = self.vocab.convert_tokens_to_string(labels)
+            labels = labels.replace("<eos>", "").strip()
             generated_history.append(labels)
 
             input_utterances = input_utterances.tolist()[0]
-            input_utterances = self.vocab.decode(input_utterances)
+            input_utterances = self.vocab.convert_ids_to_tokens(input_utterances)
+            input_utterances = self.vocab.convert_tokens_to_string(input_utterances)
+            input_utterances = input_utterances.replace("<pad>", "").strip()
             input_history.append(input_utterances)
 
-            ground_truth = list(ground_truth_target_utterance)[0]
-            ground_truth = self.vocab.decode(ground_truth)
+            ground_truth = list(target_utterance)[0]
+            ground_truth = self.vocab.convert_ids_to_tokens(ground_truth)
+            ground_truth = self.vocab.convert_tokens_to_string(ground_truth)
+            ground_truth = ground_truth.replace("<sos>", "").replace("<eos>", "").replace("<pad>", "").strip()
+
             ground_truth_history.append(ground_truth)
 
         

@@ -11,6 +11,8 @@ class ZHENG(nn.Module):
     def __init__(self, config):
         super(ZHENG, self).__init__()
 
+        self.config = config
+
         gpt_config = OpenAIGPTConfig.from_pretrained('openai-gpt')
 
         if config.pretrained:
@@ -27,6 +29,12 @@ class ZHENG(nn.Module):
 
         # tie weights
         self.linear.weight = self.transformer.tokens_embed.weight
+
+    def encode(self, prev, prev_mask):
+        return self.transformer(prev, prev_mask)
+    
+    def decode(self, x, x_mask, enc_hidden, prev_mask):
+        return self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask))
     
     def forward(self, x, x_mask, prev, prev_mask):
         enc_hidden = self.transformer(prev, prev_mask)

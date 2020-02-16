@@ -23,16 +23,9 @@ def rouge_names():
     return ["ROUGE-L Precision", "ROUGE-L Recall", "ROUGE-L F1"]
 
 
-def embedding_compute(ground_truth_utter, answer_sample, word2id, embedding):
-    ground_truth_utter_list = ground_truth_utter.split()
-    answer_sample_list = answer_sample.split()
-
-    ground_truth_ids = torch.LongTensor([word2id[tok] for tok in ground_truth_utter_list])
-    ground_truth_weights = embedding(ground_truth_ids).mean(dim=0)
-    
-    answer_sample_ids = torch.LongTensor([word2id[tok] for tok in answer_sample_list])
-    answer_sample_weights = embedding(answer_sample_ids).mean(dim=0)
-
+def embedding_compute(ground_truth_ids, answer_sample_ids, embedding):
+    ground_truth_weights = embedding(torch.LongTensor(ground_truth_ids)).mean(dim=0)
+    answer_sample_weights = embedding(torch.LongTensor(answer_sample_ids)).mean(dim=0)
     cosine = F.cosine_similarity(ground_truth_weights, answer_sample_weights, dim=0, eps=1e-6).tolist()
     if math.isnan(cosine):
         raise ValueError

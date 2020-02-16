@@ -2,12 +2,13 @@ import codecs
 import numpy as np
 import sys
 from utils import bleu_compute, rouge_compute, rouge_names, to_var, embedding_compute, dist_compute
+from utils import PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN
 from scipy.stats import sem
 import tabulate
 import torch.nn as nn 
 import torch 
 import pickle
-
+from transformers import OpenAIGPTTokenizer
 
 def main():
     bleu_list = list()
@@ -19,13 +20,32 @@ def main():
     convs_top_answer = list()
     convs_ground_truth = list()
 
-    with open(id2word_path, 'rb') as f:
-        id2word = pickle.load(f)
-        word2id = {v: k for k, v in id2word.items()}
+    if dataset == "cornell2":
+        vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
+        special_tokens = {
+            'pad_token': PAD_TOKEN,
+            'bos_token': SOS_TOKEN,
+            'eos_token': EOS_TOKEN,
+            'sep_token': SEP_TOKEN,
+        }
+        vocab.add_special_tokens(special_tokens)
 
-    with open(pretrained_wv_path, 'rb') as f:
-        weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
-    embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False).to("cpu")
+        state_dict = torch.load(checkpoint_path)
+
+        embedding_weight_name = "module.tok_embedding.weight" \
+                                if "module.tok_embedding.weight" in state_dict.keys() \
+                                else 'module.transformer.tokens_embed.weight'
+    
+        weight_tensor = state_dict[embedding_weight_name]
+        embedding = nn.Embedding.from_pretrained(weight_tensor).to("cpu")
+    else:
+        with open(id2word_path, 'rb') as f:
+            id2word = pickle.load(f)
+            word2id = {v: k for k, v in id2word.items()}
+
+        with open(pretrained_wv_path, 'rb') as f:
+            weight_tensor = to_var(torch.FloatTensor(pickle.load(f)))
+        embedding = nn.Embedding.from_pretrained(weight_tensor, freeze=False).to("cpu")
 
     with codecs.open(target_file_path, "r", "utf-8") as csv_f:
         for line in csv_f:
@@ -63,7 +83,10 @@ def main():
             dist1_list += top_answer.split()
 
             try: 
-                embedding_list.append(embedding_compute(ground_truth_utter, top_answer, word2id, embedding))
+                if dataset == "cornell2":
+                    ground_truth_utter_ids = vocab.encode(ground_truth_utter)
+                    top_answer_utter_ids = vocab.encode(top_answer)
+                embedding_list.append(embedding_compute(ground_truth_utter_ids, top_answer_utter_ids, embedding))
             except ValueError:
                 embedding_list.append(0)             
 
@@ -92,7 +115,7 @@ def main():
     stderr_rouge = sem(rouge_mat, axis=0)
     stderr_embedding = sem(embedding_mat, axis=0)
 
-    dist1 = dist_compute(dist1_list)
+    dist1 = dist_compute(dist1_list) * 100 
 
     output_str_list = list()
     output_str_list.append(["Length", avg_length, stderr_length])
@@ -109,8 +132,12 @@ def main():
 if __name__ == "__main__":
     try:
         target_file_path = sys.argv[1]
-        id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
-        pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]
+        dataset = sys.argv[2]
+        if dataset == "cornell2":
+            checkpoint_path = sys.argv[3]
+        else:
+            id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
+            pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]
     except (KeyError, IndexError):
         print("Usage: python eval.py target_file_path")
 

@@ -61,6 +61,7 @@ class Solver(object):
         new_state_dict= OrderedDict()
         for k, v in chpt.items():
             name = k[7:] if k.startswith("module.") else k #remove 'module.' of DataParallel
+            new_state_dict[name] = v
         self.model.load_state_dict(new_state_dict)
 
     def write_summary(self, epoch_i):
