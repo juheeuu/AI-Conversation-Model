@@ -28,8 +28,9 @@ class ConvDataset(Dataset):
         utterances = self.convs[index]
         conversation_length = self.convs_length[index]
         utterance_length = self.utterances_length[index]
-
         utterances = self.sent2id(utterances)
+
+        print(conversation_length)
 
         return utterances, conversation_length, utterance_length
 
@@ -39,7 +40,38 @@ class ConvDataset(Dataset):
     def sent2id(self, utterances):
         return [self.vocab.sent2id(utter) for utter in utterances]
 
+class Cornell2HREDDataset(Dataset):
+    def __init__(self, convs, vocab, config):
+        self.vocab = vocab 
+        self.convs = convs 
+        self.len = len(convs)
+        self.max_seq_len = config.max_seq_len
 
+    def __getitem__(self, index):
+        conv = self.convs[index]
+        conv = [ self.vocab.encode(utter, max_length=self.max_seq_len) + [self.vocab.eos_token_id] \
+                for utter in conv]
+
+        if len(conv) > 10:
+            conv = conv[:10]
+
+        conversation_length = len(conv)
+        utterance_length = [len(utter) if len(utter) < self.max_seq_len else self.max_seq_len for utter in conv] 
+        conversation = [self._set_padding(utter) for utter in conv]
+
+        assert len(conversation) == conversation_length == len(utterance_length)
+
+        return conversation, conversation_length, utterance_length
+    
+    def __len__(self):
+        return self.len
+
+    def _set_padding(self, text):
+        if len(text) <= self.max_seq_len:
+            return text + [self.vocab.pad_token_id for _ in range(self.max_seq_len - len(text))]
+        else:
+            return text[len(text) - self.max_seq_len:]
+    
 class ConvUserDataset(ConvDataset):
     def __init__(self, convs, convs_users, convs_length, utterances_length, vocab):
         """
@@ -171,7 +203,9 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
 
     if (model == "ZHENG" or model == "Transformer")  and dataset == "cornell2":
         dataset = Cornell2TransformerBasedDataset(convs, vocab, config)
-    elif convs_users is None and not is_ptb_model:
+    elif dataset == "cornell2" and model == "HRED":
+        dataset = Cornell2HREDDataset(convs, vocab, config)
+    elif convs_users is None:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
     elif is_ptb_model:
         dataset = ConvPTBDataset(convs, utterances_length, vocab)
