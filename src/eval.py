@@ -19,6 +19,7 @@ def main():
     conv_idx_match = 0
     convs_top_answer = list()
     convs_ground_truth = list()
+    num_answers = 1
 
     if dataset == "cornell2":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
@@ -32,10 +33,21 @@ def main():
 
         state_dict = torch.load(checkpoint_path)
 
-        embedding_weight_name = "module.tok_embedding.weight" \
-                                if "module.tok_embedding.weight" in state_dict.keys() \
-                                else 'module.transformer.tokens_embed.weight'
-    
+        embedding_weight_name = "encoder.embedding.weight"
+
+        embedding_weight_name = None
+        for key in state_dict.keys():
+            if key.endswith("tok_embedding.weight"):
+                embedding_weight_name = key 
+                break 
+            elif key.endswith("transformer.tokens_embed.weight"):
+                embedding_weight_name = key
+                break
+            elif key.endswith("encoder.embedding.weight"):
+                embedding_weight_name = key
+                num_answers = 5
+                break
+        assert embedding_weight_name != None
         weight_tensor = state_dict[embedding_weight_name]
         embedding = nn.Embedding.from_pretrained(weight_tensor).to("cpu")
     else:
@@ -54,26 +66,21 @@ def main():
                 print("What?!")
                 return
             conv_idx_match += 1
-
-            # for _ in range(num_turn):
-
-            # answers = list()
-            # # for _ in range(num_answers):
-            # answers.append(csv_f.readline().strip())
-            # top_answer = answers[-1]
-            # top_answer_splited = top_answer.split()
-
-            # ground_truth_utter = csv_f.readline().strip()
-            # # ground_truth_utter_splited = ground_truth_utter.split()
-
-            # length_history.append(len(top_answer_splited))
-
-            # convs_top_answer.append(top_answer)
-            # convs_ground_truth.append(ground_truth_utter)
-
             context_utter = csv_f.readline().strip()
-            top_answer = csv_f.readline().strip()
+
+            answers = list()
+            for _ in range(num_answers):
+                answers.append(csv_f.readline().strip())
+            
+            if '<eos>' in top_answer:
+                top_answer = answers[-1].split('<eos>')[0].strip()
+            else: 
+                top_answer = answers[-1].strip()
+
             ground_truth_utter = csv_f.readline().strip()
+
+            if '<eos>' in ground_truth_utter:
+                ground_truth_utter = ground_truth_utter.split('<eos>')[0]
 
             length_history.append(len(top_answer.split()))
 
@@ -135,6 +142,7 @@ if __name__ == "__main__":
         dataset = sys.argv[2]
         if dataset == "cornell2":
             checkpoint_path = sys.argv[3]
+            model_name = sys.argv[4]
         else:
             id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
             pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]
