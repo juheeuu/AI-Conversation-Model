@@ -46,7 +46,7 @@ if __name__ == '__main__':
                                     batch_size=val_config.eval_batch_size,
                                     is_ptb_model=(val_config.model=="ZHENG") or (val_config.model=="Transformer"))
     
-    elif config.data_name == "cornell2":
+    elif config.data_name == "cornell2" or "ubuntu":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
         special_tokens = {
             'pad_token': PAD_TOKEN,

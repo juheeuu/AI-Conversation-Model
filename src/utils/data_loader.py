@@ -30,8 +30,6 @@ class ConvDataset(Dataset):
         utterance_length = self.utterances_length[index]
         utterances = self.sent2id(utterances)
 
-        print(conversation_length)
-
         return utterances, conversation_length, utterance_length
 
     def __len__(self):
@@ -49,6 +47,7 @@ class Cornell2HREDDataset(Dataset):
 
     def __getitem__(self, index):
         conv = self.convs[index]
+        conv = [info[1] for info in conv]
         conv = [ self.vocab.encode(utter, max_length=self.max_seq_len) + [self.vocab.eos_token_id] \
                 for utter in conv]
 
@@ -155,30 +154,50 @@ class ConvPTBDataset(ConvDataset):
             utterance.reverse()
         return utterance
 
-class Cornell2TransformerBasedDataset(Dataset):
+class TransformerBasedConvDataset(Dataset):
     def __init__(self, convs, vocab, config):
         self.vocab = vocab 
         self.convs = convs 
         self.len = len(convs)
         self.max_seq_len = config.max_seq_len
+        self.users = config.users 
     
     def __getitem__(self, index):
+
         conv = self.convs[index]
-        input_utters = conv[:-1]
-        target_utter = conv[-1]
 
         inputs = []
-        for utter in input_utters:
-            inputs += self.vocab.encode(utter, max_length=self.max_seq_len)
-            inputs += [self.vocab.eos_token_id, self.vocab.sep_token_id]
-        inputs = inputs[:-1]
+        input_users = []
 
-        target_utter = [self.vocab.bos_token_id] + self.vocab.encode(target_utter, max_length=self.max_seq_len-2) + [self.vocab.eos_token_id]
+        for i, elem in enumerate(conv):
+            if isinstance(elem, list):
+                user_num = int(elem[0].replace('u', '').strip()) + 1
+                utter = elem[1]
+            else:
+                user_num = None 
+                utter = elem 
+
+            if i < len(conv) - 1: 
+                eos_tokens = [self.vocab.eos_token_id] if i == len(conv) - 2 else [self.vocab.eos_token_id, self.vocab.sep_token_id]
+                encoded = self.vocab.encode(utter.strip(), max_length=self.max_seq_len) + eos_tokens
+                inputs += encoded
+                if user_num:
+                    input_users += [user_num] * len(encoded)
+            else: 
+                target = [self.vocab.bos_token_id] + self.vocab.encode(utter, max_length=self.max_seq_len-2) + [self.vocab.eos_token_id]
+                target_users = [user_num] * len(target) if user_num else None 
 
         input_utter, input_mask = self._setting(inputs)
-        target_utter, target_mask = self._setting(target_utter)
+        target_utter, target_mask = self._setting(target)
 
-        return input_utter, input_mask, target_utter, target_mask
+        if input_users and target_users and self.users:
+            input_users += [ 0 for _ in range(self.max_seq_len - len(input_users))]
+            target_users += [ 0 for _ in range(self.max_seq_len - len(target_users))]
+        else:
+            input_users = None 
+            target_users = None 
+
+        return input_utter, input_mask, target_utter, target_mask, input_users, target_users
 
     def __len__(self):
         return self.len 
@@ -201,8 +220,8 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
 
-    if (model == "ZHENG" or model == "Transformer")  and dataset == "cornell2":
-        dataset = Cornell2TransformerBasedDataset(convs, vocab, config)
+    if (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu"):
+        dataset = TransformerBasedConvDataset(convs, vocab, config)
     elif dataset == "cornell2" and model == "HRED":
         dataset = Cornell2HREDDataset(convs, vocab, config)
     elif convs_users is None:

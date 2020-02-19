@@ -13,7 +13,9 @@ class ZHENG(nn.Module):
 
         self.config = config
 
-        gpt_config = OpenAIGPTConfig.from_pretrained('openai-gpt')
+        gpt_config = OpenAIGPTConfig().from_pretrained('openai-gpt')
+        setattr(gpt_config, 'users', config.users)
+        setattr(gpt_config, 'user_size', config.user_size)
 
         if config.pretrained:
             transformer = TransformerModule(gpt_config).from_pretrained('openai-gpt')
@@ -30,22 +32,23 @@ class ZHENG(nn.Module):
         # tie weights
         self.linear.weight = self.transformer.tokens_embed.weight
 
-    def encode(self, prev, prev_mask):
-        return self.transformer(prev, prev_mask)
+    def encode(self, prev, prev_mask, user_ids=None):
+        return self.transformer(prev, prev_mask, user_ids=user_ids)
     
-    def decode(self, x, x_mask, enc_hidden, prev_mask):
-        return self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask))
+    def decode(self, x, x_mask, enc_hidden, prev_mask, user_ids=None):
+        return self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask, user_ids=user_ids))
     
-    def forward(self, x, x_mask, prev, prev_mask):
-        enc_hidden = self.transformer(prev, prev_mask)
+    def forward(self, x, x_mask, prev, prev_mask, x_user_ids=None, prev_user_ids=None):
+        enc_hidden = self.transformer(prev, prev_mask, user_ids=prev_user_ids)
         lm_output = self.linear(enc_hidden)
-        conv_output = self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask))
+        conv_output = self.linear(self.transformer(x, x_mask, enc_hidden, prev_mask, user_ids=x_user_ids))
 
         return lm_output, conv_output
 
 class TransformerModule(OpenAIGPTPreTrainedModel):
     def __init__(self, config): 
         super(TransformerModule, self).__init__(config)
+        self.config = config
 
         pretrained = True if isinstance(config, OpenAIGPTConfig) else False
 
@@ -60,6 +63,7 @@ class TransformerModule(OpenAIGPTPreTrainedModel):
 
         self.tokens_embed = nn.Embedding(config.vocab_size, embedding_size)
         self.positions_embed = nn.Embedding(max_seq_len, embedding_size, padding_idx=0)
+        self.user_embed = nn.Embedding(9035, embedding_size, padding_idx=0)
 
         self.drop = nn.Dropout(embed_dropout)
         self.h = nn.ModuleList(
@@ -72,8 +76,10 @@ class TransformerModule(OpenAIGPTPreTrainedModel):
     def _init_weights_for_not_pretrained(self):
         nn.init.normal_(self.tokens_embed.weight, std=0.02)
         nn.init.normal_(self.positions_embed.weight, std=0.02)
+        # if self.config.users:
+        nn.init.normal_(self.user_embed.weight, std=0.02)
 
-    def forward(self, x, x_mask=None, enc_hidden=None, enc_hidden_mask=None):
+    def forward(self, x, x_mask=None, enc_hidden=None, enc_hidden_mask=None, user_ids=None):
         device = x.device
 
         x_shape = x.size()
@@ -95,6 +101,11 @@ class TransformerModule(OpenAIGPTPreTrainedModel):
         inputs_embeds = self.tokens_embed(x)
         position_embeds = self.positions_embed(pos_ids)
         hidden_states = inputs_embeds + position_embeds
+
+        if user_ids is not None: 
+            user_embed = self.user_embed(user_ids)
+            hidden_states = hidden_states + user_embed
+
         hidden_states = self.drop(hidden_states)
 
         for i, block in enumerate(self.h):

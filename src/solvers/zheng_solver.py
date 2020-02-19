@@ -54,12 +54,19 @@ class SolverZHENG(Solver):
             for batch_i, (input_utterances,
                           input_utterances_mask,
                           target_utterance,
-                          target_utterance_mask) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+                          target_utterance_mask,
+                          input_user_ids,
+                          target_user_ids) in enumerate(tqdm(self.train_data_loader, ncols=80)):
     
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
+
+                if input_user_ids is not None:
+                    input_user_ids = torch.LongTensor(input_user_ids).to(self.config.device)
+                if target_user_ids is not None:
+                    target_user_ids = torch.LongTensor(target_user_ids).to(self.config.device)
 
                 self.optimizer.zero_grad()
                 self.model.zero_grad()
@@ -68,8 +75,13 @@ class SolverZHENG(Solver):
 
                 target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
                 target_mask = target_utterance_mask[..., :-1].contiguous()
+                
+                if target_user_ids is not None:
+                    target_user_ids = target_user_ids[..., :-1].contiguous()
 
-                lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask)
+                lm_output, conv_output = self.model(target, target_mask,
+                                                    input_utterances, input_utterances_mask,
+                                                    target_user_ids, input_user_ids)
                 
                 # 1. Calculate Language Model Loss 
                 outputs, labels = lm_output[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
@@ -141,20 +153,23 @@ class SolverZHENG(Solver):
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       target_utterance,
-                      target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      target_utterance_mask,
+                      user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
+                if user_ids is not None:
+                    user_ids = torch.LongTensor(user_ids).to(self.config.device)
 
             loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
 
             target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
             target_mask = target_utterance_mask[..., :-1].contiguous()
 
-            lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask)
+            lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask, user_ids)
             
             # 1. Calculate Language Model Loss 
             outputs, labels = lm_output[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
@@ -193,12 +208,15 @@ class SolverZHENG(Solver):
         for batch_i, (input_utterances,
                       input_utterances_mask,
                       target_utterance,
-                      _) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      _,
+                      user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
 
             context_history.append(input_utterances)
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
+                if user_ids is not None:
+                    user_ids = torch.LongTensor(user_ids).to(self.config.device)
 
             max_seq_len =self.model.config.max_seq_len 
 

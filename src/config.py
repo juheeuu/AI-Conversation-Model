@@ -108,7 +108,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--rnn', type=str, default='gru')
     parser.add_argument('--rnncell', type=str, default='gru')
     parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--embedding_size', type=int, default=512)
+    parser.add_argument('--embedding_size', type=int, default=300)
     parser.add_argument('--tie_embedding', type=str2bool, default=True)
     parser.add_argument('--encoder_hidden_size', type=int, default=512)
     parser.add_argument('--bidirectional', type=str2bool, default=True)
@@ -124,6 +124,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--users', type=str2bool, default=False)
     parser.add_argument('--n_heads', type=int, default=8)
     parser.add_argument('--d_model', type=int, default=512)
+    parser.add_argument('--user_size', type=int, default=9036)
 
     parser.add_argument('--z_utter_size', type=int, default=100)
     parser.add_argument('--z_conv_size', type=int, default=100)
@@ -133,7 +134,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--kl_annealing_iter', type=int, default=5000)
     parser.add_argument('--importance_sample', type=int, default=100)
     parser.add_argument('--sentence_drop', type=float, default=0.25)
-    parser.add_argument('--patience', type=int, default=50)
+    parser.add_argument('--patience', type=int, default=5)
 
     parser.add_argument('--n_context', type=int, default=1)
     parser.add_argument('--n_sample_step', type=int, default=1)

@@ -5,7 +5,6 @@ from torch.nn import functional as F
 from .rnncells import StackedGRUCell, LSTMSACell
 from .beam_search import Beam
 from utils import to_var, SOS_ID, UNK_ID, EOS_ID, PAD_ID
-from .encoder import PositionalEncoding
 import pickle
 
 class BaseRNNDecoder(nn.Module):
