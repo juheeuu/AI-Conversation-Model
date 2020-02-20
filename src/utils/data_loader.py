@@ -191,8 +191,9 @@ class TransformerBasedConvDataset(Dataset):
         target_utter, target_mask = self._setting(target)
 
         if input_users and target_users and self.users:
-            input_users += [ 0 for _ in range(self.max_seq_len - len(input_users))]
-            target_users += [ 0 for _ in range(self.max_seq_len - len(target_users))]
+            input_users = self._setting(input_users, 0, False)
+            target_users = self._setting(target_users, 0, False)
+            assert len(input_users) == len(target_users) == self.max_seq_len
         else:
             input_users = None 
             target_users = None 
@@ -202,15 +203,21 @@ class TransformerBasedConvDataset(Dataset):
     def __len__(self):
         return self.len 
     
-    def _setting(self, text):
+    def _setting(self, text, pad_index=None, return_mask=True):
+        if pad_index is None:
+            pad_index = self.vocab.pad_token_id
+            
         if len(text) <= self.max_seq_len:
-            text = text + [self.vocab.pad_token_id for _ in range(self.max_seq_len - len(text))]
+            text = text + [pad_index for _ in range(self.max_seq_len - len(text))]
         else:
             text = text[len(text) - self.max_seq_len:]
             assert len(text) == self.max_seq_len
 
-        text_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in text ]
-        return text, text_mask
+        if return_mask:
+            text_mask = [ 0 if tok == self.vocab.pad_token_id else 1 for tok in text ]
+            return text, text_mask
+        
+        return text 
 
 
 def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_users=None, batch_size=100, 

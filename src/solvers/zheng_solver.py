@@ -63,9 +63,10 @@ class SolverZHENG(Solver):
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
 
-                if input_user_ids is not None:
+                user_available = input_user_ids[0] is not None 
+
+                if user_available:
                     input_user_ids = torch.LongTensor(input_user_ids).to(self.config.device)
-                if target_user_ids is not None:
                     target_user_ids = torch.LongTensor(target_user_ids).to(self.config.device)
 
                 self.optimizer.zero_grad()
@@ -76,8 +77,11 @@ class SolverZHENG(Solver):
                 target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
                 target_mask = target_utterance_mask[..., :-1].contiguous()
                 
-                if target_user_ids is not None:
+                if user_available:
                     target_user_ids = target_user_ids[..., :-1].contiguous()
+                else:
+                    input_user_ids = None 
+                    target_user_ids = None 
 
                 lm_output, conv_output = self.model(target, target_mask,
                                                     input_utterances, input_utterances_mask,
@@ -129,15 +133,15 @@ class SolverZHENG(Solver):
                 self.writer.add_scalar('Val/conv_loss', val_conv_loss, epoch_i + 1)
                 self.writer.add_scalar('Val/loss', val_loss, epoch_i + 1)
 
+            self.save_model(epoch_i)
+
             if min_validation_loss > self.validation_loss:
                 min_validation_loss = self.validation_loss
             else:
                 patience_cnt -= 1
-                self.save_model(epoch_i)
 
             if patience_cnt < 0:
                 print(f'\nEarly stop at {epoch_i}')
-                self.save_model(epoch_i)
                 return epoch_loss_history
 
         self.save_model(self.config.n_epoch)
@@ -154,22 +158,35 @@ class SolverZHENG(Solver):
                       input_utterances_mask,
                       target_utterance,
                       target_utterance_mask,
-                      user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      input_user_ids,
+                      target_user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
                 target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
                 target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device)
-                if user_ids is not None:
-                    user_ids = torch.LongTensor(user_ids).to(self.config.device)
+
+                user_available = input_user_ids[0] is not None 
+
+                if user_available:
+                    input_user_ids = torch.LongTensor(input_user_ids).to(self.config.device)
+                    target_user_ids = torch.LongTensor(target_user_ids).to(self.config.device)
 
             loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
 
             target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
             target_mask = target_utterance_mask[..., :-1].contiguous()
 
-            lm_output, conv_output = self.model(target, target_mask, input_utterances, input_utterances_mask, user_ids)
+            if user_available:
+                target_user_ids = target_user_ids[..., :-1].contiguous()
+            else:
+                input_user_ids = None 
+                target_user_ids = None 
+
+            lm_output, conv_output = self.model(target, target_mask, 
+                                                input_utterances, input_utterances_mask, 
+                                                target_user_ids, input_user_ids)
             
             # 1. Calculate Language Model Loss 
             outputs, labels = lm_output[..., :-1, :].contiguous(), input_utterances[..., 1:].contiguous()
