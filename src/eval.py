@@ -21,7 +21,7 @@ def main():
     convs_ground_truth = list()
     num_answers = 1
 
-    if dataset == "cornell2":
+    if dataset == "cornell2" or dataset == "ubuntu":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
         special_tokens = {
             'pad_token': PAD_TOKEN,
@@ -72,7 +72,7 @@ def main():
             for _ in range(num_answers):
                 answers.append(csv_f.readline().strip())
             
-            if '<eos>' in top_answer:
+            if '<eos>' in answers[-1]:
                 top_answer = answers[-1].split('<eos>')[0].strip()
             else: 
                 top_answer = answers[-1].strip()
@@ -90,7 +90,7 @@ def main():
             dist1_list += top_answer.split()
 
             try: 
-                if dataset == "cornell2":
+                if dataset == "cornell2" or dataset == "ubuntu":
                     ground_truth_utter_ids = vocab.encode(ground_truth_utter)
                     top_answer_utter_ids = vocab.encode(top_answer)
                 embedding_list.append(embedding_compute(ground_truth_utter_ids, top_answer_utter_ids, embedding))
@@ -122,7 +122,7 @@ def main():
     stderr_rouge = sem(rouge_mat, axis=0)
     stderr_embedding = sem(embedding_mat, axis=0)
 
-    dist1 = dist_compute(dist1_list) * 100 
+    dist1 = dist_compute(dist1_list)
 
     output_str_list = list()
     output_str_list.append(["Length", avg_length, stderr_length])
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     try:
         target_file_path = sys.argv[1]
         dataset = sys.argv[2]
-        if dataset == "cornell2":
+        if dataset == "cornell2" or dataset == "ubuntu":
             checkpoint_path = sys.argv[3]
             model_name = sys.argv[4]
         else:

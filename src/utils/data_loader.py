@@ -47,7 +47,8 @@ class Cornell2HREDDataset(Dataset):
 
     def __getitem__(self, index):
         conv = self.convs[index]
-        conv = [info[1] for info in conv]
+        if isinstance(conv[0], list):
+            conv = [info[1] for info in conv]
         conv = [ self.vocab.encode(utter, max_length=self.max_seq_len) + [self.vocab.eos_token_id] \
                 for utter in conv]
 
@@ -191,12 +192,14 @@ class TransformerBasedConvDataset(Dataset):
         target_utter, target_mask = self._setting(target)
 
         if input_users and target_users and self.users:
-            input_users = self._setting(input_users, 0, False)
+            input_users = self._setting(input_users, pad_index=0, return_mask=False)
             target_users = self._setting(target_users, 0, False)
             assert len(input_users) == len(target_users) == self.max_seq_len
         else:
             input_users = None 
-            target_users = None 
+            target_users = None
+
+        assert len(input_utter) == len(input_mask) == len(target_utter) == len(target_mask) == self.max_seq_len
 
         return input_utter, input_mask, target_utter, target_mask, input_users, target_users
 
@@ -229,7 +232,7 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
 
     if (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu"):
         dataset = TransformerBasedConvDataset(convs, vocab, config)
-    elif dataset == "cornell2" and model == "HRED":
+    elif (dataset == "cornell2" or dataset == "ubuntu") and model == "HRED":
         dataset = Cornell2HREDDataset(convs, vocab, config)
     elif convs_users is None:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)

@@ -27,7 +27,7 @@ def main():
                                 vocab=vocab, batch_size=config.batch_size, shuffle=False, convs_users=test_users,
                                 is_ptb_model=(config.model=="PTB"))
 
-    elif config.data_name == "cornell2":
+    elif config.data_name == "cornell2" or config.data_name == "ubuntu":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
         special_tokens = {
             'pad_token': PAD_TOKEN,
