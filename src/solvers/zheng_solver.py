@@ -226,26 +226,35 @@ class SolverZHENG(Solver):
                       input_utterances_mask,
                       target_utterance,
                       _,
-                      user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+                      input_user_ids,
+                      target_user_ids) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
 
             context_history.append(input_utterances)
             with torch.no_grad():
                 input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
                 input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device)
-                if user_ids is not None:
-                    user_ids = torch.LongTensor(user_ids).to(self.config.device)
+                
+                user_available = input_user_ids[0] is not None 
+                
+                if user_available:
+                    input_user_ids = torch.LongTensor(input_user_ids).to(self.config.device)
+                    target_user_ids = torch.LongTensor(target_user_ids).to(self.config.device)
+                else:
+                    input_user_ids = None 
 
             max_seq_len =self.model.config.max_seq_len 
 
             enc_input = input_utterances.unsqueeze(-1)
 
-            enc_hidden = self.model.encode(input_utterances, input_utterances_mask)
+            enc_hidden = self.model.encode(input_utterances, input_utterances_mask, input_user_ids)
 
             dec_input = torch.LongTensor([[self.config.vocab.bos_token_id]]).to(self.config.device)
 
             # Greedy Decoding 
             for i in range(max_seq_len):
-                y_pred = self.model.decode(dec_input, None, enc_hidden, input_utterances_mask)
+
+                dec_id = target_user_ids[...,:i+1] if user_available else None
+                y_pred = self.model.decode(dec_input, None, enc_hidden, input_utterances_mask, dec_id)
                 y_pred_ids = y_pred.max(dim=-1)[1]
 
                 new_word = y_pred_ids.tolist()[0][-1]
