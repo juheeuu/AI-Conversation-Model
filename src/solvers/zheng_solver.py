@@ -210,9 +210,8 @@ class SolverZHENG(Solver):
         print(f'Validation loss: {epoch_batch_loss:.3f}\n')
 
         return epoch_batch_loss, epoch_lm_loss, epoch_conv_loss
-
-    # TODO: Inference with greedy.. 
-    def export_samples(self, beam_size=4):
+    
+    def export_samples(self, beam_size=4, file_write=True):
         self.model.config.beam_size = beam_size
         self.model.eval()
         n_sample_step = self.config.n_sample_step
@@ -284,19 +283,19 @@ class SolverZHENG(Solver):
 
             ground_truth_history.append(ground_truth)
 
+        if file_write:
+            target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,
+                                                                    beam_size, self.epoch_i)
+            print("Writing candidates into file {}".format(target_file_name))
+            conv_idx = 0 
+            with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
+                for input_utter, generated, ground_truth in tqdm(zip(input_history, generated_history, ground_truth_history)):
+                    print("Conversation Context {}".format(conv_idx), file=output_f)
+                    print(input_utter, file=output_f)
+                    print(generated, file=output_f)
+                    print(ground_truth, file=output_f)
+                    conv_idx += 1
+            return conv_idx
         
-        target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,
-                                                                 beam_size, self.epoch_i)
-        print("Writing candidates into file {}".format(target_file_name))
-        conv_idx = 0 
-        with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
-            for input_utter, generated, ground_truth in tqdm(zip(input_history, generated_history, ground_truth_history)):
-                print("Conversation Context {}".format(conv_idx), file=output_f)
-                print(input_utter, file=output_f)
-                print(generated, file=output_f)
-                print(ground_truth, file=output_f)
-                conv_idx += 1
-
-        return conv_idx
-
-
+        else: 
+            return input_history, generated_history
