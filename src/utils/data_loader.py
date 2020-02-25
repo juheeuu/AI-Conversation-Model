@@ -59,8 +59,6 @@ class Cornell2HREDDataset(Dataset):
         utterance_length = [len(utter) if len(utter) < self.max_seq_len else self.max_seq_len for utter in conv] 
         conversation = [self._set_padding(utter) for utter in conv]
 
-        assert len(conversation) == conversation_length == len(utterance_length)
-
         return conversation, conversation_length, utterance_length
     
     def __len__(self):
@@ -104,57 +102,6 @@ class ConvUserDataset(ConvDataset):
 
         return utterances, conversation_length, utterance_length, conversation_users
 
-class ConvPTBDataset(ConvDataset):
-    def __init__(self, convs, utterances_length, vocab):
-        """
-        Dataset class for conversation
-        Dataset class for conversation
-        :param convs: A list of conversation that is represented as a list of utterances
-        :param convs_length: A list of integer that indicates the number of utterances in each conversation
-        :param utterances_length: A list of list whose element indicates the number of tokens in each utterance
-        :param vocab: vocab class
-        """
-        self.convs = convs
-        self.vocab = vocab
-        self.len = len(convs)   # total number of conversations
-        self.utterances_length = utterances_length
-
-    def __getitem__(self, index):
-        utterances = self.convs[index]
-        target_utterance = utterances[-1]
-        input_utterances = utterances[:-1]
-
-        input_utterances_list = []
-        for utter in input_utterances: 
-            for i, tok in enumerate(utter): 
-                if tok == '<eos>':
-                    input_utterances_list += utter[:i+1]
-                    input_utterances_list.append('<sep>')
-        
-        input_utterances_list.pop()
-        input_utterances = input_utterances_list
-        input_utterances = self.set_padding(input_utterances)
-
-        target_utterance = ['<sos>'] + target_utterance + ['<eos>']
-        target_utterance = self.set_padding(target_utterance)
-            
-        input_utterances_mask = [0 if tok == '<pad>' else 1 for tok in input_utterances]
-        target_utterance_mask = [0 if tok == '<pad>' else 1 for tok in target_utterance]
-
-        input_utterances = self.vocab.sent2id(input_utterances)
-        target_utterance = self.vocab.sent2id(target_utterance)
-
-        return input_utterances, input_utterances_mask, target_utterance, target_utterance_mask
-    
-    def set_padding(self, utterance, max_seq_len=512):
-        if len(utterance) <= max_seq_len:
-            utterance = utterance + ['<pad>' for _ in range(max_seq_len - len(utterance))]
-        else:
-            utterance.reverse()
-            utterance = utterance[:max_seq_len]
-            utterance.reverse()
-        return utterance
-
 class TransformerBasedConvDataset(Dataset):
     def __init__(self, convs, vocab, config):
         self.vocab = vocab 
@@ -172,7 +119,7 @@ class TransformerBasedConvDataset(Dataset):
 
         for i, elem in enumerate(conv):
             if isinstance(elem, list):
-                user_num = int(elem[0].replace('u', '').strip()) + 1
+                user_num = int(elem[0].replace('u', '').strip()) + 1 if isinstance(elem[0], str) else elem[0] + 1
                 utter = elem[1]
             else:
                 user_num = None 
@@ -230,14 +177,12 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
 
-    if (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu"):
+    if (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu" or dataset=="twitter_s"):
         dataset = TransformerBasedConvDataset(convs, vocab, config)
-    elif (dataset == "cornell2" or dataset == "ubuntu") and model == "HRED":
+    elif model == "HRED" and (dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s"):
         dataset = Cornell2HREDDataset(convs, vocab, config)
     elif convs_users is None:
         dataset = ConvDataset(convs, convs_length, utterances_length, vocab)
-    elif is_ptb_model:
-        dataset = ConvPTBDataset(convs, utterances_length, vocab)
     else:
         dataset = ConvUserDataset(convs, convs_users, convs_length, utterances_length, vocab)
 
