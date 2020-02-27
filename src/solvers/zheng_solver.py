@@ -289,9 +289,6 @@ class SolverZHENG(Solver):
                 ground_truth = ground_truth.replace("<sos>", "").replace("<eos>", "").replace("<pad>", "").strip()
                 ground_truth_history.append(ground_truth)
 
-            if batch_i > 4:
-                break 
-
         if file_write:
             target_file_name = 'responses_{}_{}_{}.txt'.format(self.config.mode, beam_size, self.epoch_i)
             print("Writing candidates into file {}".format(target_file_name))
