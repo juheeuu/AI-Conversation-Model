@@ -212,7 +212,7 @@ class SolverZHENG(Solver):
         return epoch_batch_loss, epoch_lm_loss, epoch_conv_loss
 
     
-    def export_samples(self, file_write=True):
+    def export_samples(self, beam_size, file_write=True):
         self.model.eval()
         n_sample_step = self.config.n_sample_step
         context_history = list()
@@ -220,7 +220,6 @@ class SolverZHENG(Solver):
         ground_truth_history = list()
         generated_history = list()
         input_history = list()
-        beam_size = self.config.beam_size
 
         for batch_i, (input_utterances,
                       input_utterances_mask,

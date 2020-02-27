@@ -53,7 +53,7 @@ def main():
     test_solver = model_solver(config, None, data_loader, vocab=vocab, is_train=False)
 
     test_solver.build()
-    test_solver.export_samples()
+    test_solver.export_samples(config.beam_size)
 
 
 if __name__ == '__main__':

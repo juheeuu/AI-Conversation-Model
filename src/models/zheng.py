@@ -79,8 +79,7 @@ class ZHENG(nn.Module):
         cur_len = 1
 
         while cur_len < max_seq_len:
-            if x_user_ids is not None: 
-                x_user_id = x_user_ids[...,:cur_len]
+            x_user_id = x_user_ids[...,:cur_len] if x_user_ids is not None else None
             scores = self.decode(input_ids, None, enc_hidden, prev_mask, x_user_id)[:,-1,:] # (batch_size * beam_size, vocab_size)
             scores = F.log_softmax(scores, dim=-1)  # (batch_size * beam_size, vocab_size)
             assert scores.size() == (batch_size * beam_size, vocab_size)
