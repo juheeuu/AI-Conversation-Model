@@ -210,6 +210,7 @@ class SolverZHENG(Solver):
         print(f'Validation loss: {epoch_batch_loss:.3f}\n')
 
         return epoch_batch_loss, epoch_lm_loss, epoch_conv_loss
+
     
     def export_samples(self, beam_size=4, file_write=True):
         self.model.config.beam_size = beam_size
@@ -240,52 +241,59 @@ class SolverZHENG(Solver):
                     target_user_ids = torch.LongTensor(target_user_ids).to(self.config.device)
                 else:
                     input_user_ids = None 
+                    target_user_ids = None 
 
-            max_seq_len =self.model.config.max_seq_len 
+            max_seq_len = self.model.config.max_seq_len 
 
-            enc_input = input_utterances.unsqueeze(-1)
+            if beam_size == 1:
+                # do Greedy Decoding 
+                enc_hidden = self.model.encode(input_utterances, input_utterances_mask, input_user_ids)
+                dec_input = torch.LongTensor([[self.config.vocab.bos_token_id]]).to(self.config.device)
 
-            enc_hidden = self.model.encode(input_utterances, input_utterances_mask, input_user_ids)
+                for i in range(max_seq_len):
+                    dec_id = target_user_ids[...,:i+1] if user_available else None
+                    y_pred = self.model.decode(dec_input, None, enc_hidden, input_utterances_mask, dec_id)
+                    y_pred_ids = y_pred.max(dim=-1)[1]
 
-            dec_input = torch.LongTensor([[self.config.vocab.bos_token_id]]).to(self.config.device)
+                    new_word = y_pred_ids.tolist()[0][-1]
 
-            # Greedy Decoding 
-            for i in range(max_seq_len):
+                    if new_word == self.config.vocab.eos_token_id or i == max_seq_len - 1:
+                        break
 
-                dec_id = target_user_ids[...,:i+1] if user_available else None
-                y_pred = self.model.decode(dec_input, None, enc_hidden, input_utterances_mask, dec_id)
-                y_pred_ids = y_pred.max(dim=-1)[1]
+                    dec_input = torch.cat((dec_input, torch.LongTensor([[new_word]]).to(self.config.device)), dim=-1)
 
-                new_word = y_pred_ids.tolist()[0][-1]
+                labels = y_pred_ids.tolist()
+            else: 
+                # Beam Decoding 
+                labels = self.model.beam_generate(input_utterances, input_utterances_mask, input_user_ids, 
+                                    target_user_ids, self.config.vocab.bos_token_id,
+                                    self.config.vocab.pad_token_id, self.config.vocab.eos_token_id).tolist()
+        
+                
+            input_utterances = input_utterances.tolist()
+            ground_truthes = list(target_utterance)
 
-                if new_word == self.config.vocab.eos_token_id or i == max_seq_len - 1:
-                    break
+            for label, input_utter, ground_truth in zip(labels, input_utterances, ground_truthes):
+                label = self.vocab.convert_ids_to_tokens(label)
+                label = self.vocab.convert_tokens_to_string(label)
+                label = label.replace("<sos>", "").replace("<eos>", "").replace("<pad>", "").strip()
+                generated_history.append(label)
 
-                dec_input = torch.cat((dec_input, torch.LongTensor([[new_word]]).to(self.config.device)), dim=-1)
-            
-            labels = y_pred_ids.tolist()[0]
+                input_utter = self.vocab.convert_ids_to_tokens(input_utter)
+                input_utter = self.vocab.convert_tokens_to_string(input_utter)
+                input_utter = input_utter.replace("<pad>", "").strip()
+                input_history.append(input_utter)
 
-            labels = self.vocab.convert_ids_to_tokens(labels)
-            labels = self.vocab.convert_tokens_to_string(labels)
-            labels = labels.replace("<eos>", "").strip()
-            generated_history.append(labels)
+                ground_truth = self.vocab.convert_ids_to_tokens(ground_truth)
+                ground_truth = self.vocab.convert_tokens_to_string(ground_truth)
+                ground_truth = ground_truth.replace("<sos>", "").replace("<eos>", "").replace("<pad>", "").strip()
+                ground_truth_history.append(ground_truth)
 
-            input_utterances = input_utterances.tolist()[0]
-            input_utterances = self.vocab.convert_ids_to_tokens(input_utterances)
-            input_utterances = self.vocab.convert_tokens_to_string(input_utterances)
-            input_utterances = input_utterances.replace("<pad>", "").strip()
-            input_history.append(input_utterances)
-
-            ground_truth = list(target_utterance)[0]
-            ground_truth = self.vocab.convert_ids_to_tokens(ground_truth)
-            ground_truth = self.vocab.convert_tokens_to_string(ground_truth)
-            ground_truth = ground_truth.replace("<sos>", "").replace("<eos>", "").replace("<pad>", "").strip()
-
-            ground_truth_history.append(ground_truth)
+            if batch_i > 4:
+                break 
 
         if file_write:
-            target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, n_sample_step,
-                                                                    beam_size, self.epoch_i)
+            target_file_name = 'responses_{}_{}_{}.txt'.format(self.config.mode, beam_size, self.epoch_i)
             print("Writing candidates into file {}".format(target_file_name))
             conv_idx = 0 
             with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
