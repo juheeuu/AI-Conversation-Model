@@ -173,7 +173,7 @@ class SolverHRED(Solver):
 
         return word_perplexity
 
-    def export_samples(self, beam_size=5):
+    def export_samples(self, beam_size=5, file_write=False):
         self.model.decoder.beam_size = beam_size
         self.model.eval()
         n_context = self.config.n_context
@@ -200,18 +200,33 @@ class SolverHRED(Solver):
             sample_history.append(all_samples)
             ground_truth_history.append(ground_truth)
 
-        target_file_name = 'responses_{}_{}_{}_{}_{}.txt'.format(self.config.mode, n_context, n_sample_step,
-                                                                 beam_size, self.epoch_i)
-        print("Writing candidates into file {}".format(target_file_name))
-        conv_idx = 0
-        with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
-            for contexts, samples, ground_truths in tqdm(zip(context_history, sample_history, ground_truth_history),
-                                                         total=len(context_history), ncols=80):
-                for one_conv_contexts, one_conv_samples, one_conv_ground_truth in zip(contexts, samples, ground_truths):
-                    print("Conversation Context {}".format(conv_idx), file=output_f)
-                    print("\n".join([self.vocab.decode(utter) for utter in one_conv_contexts]), file=output_f)
-                    print("\n".join([self.vocab.decode(utter) for utters_beam in one_conv_samples for utter in utters_beam]), file=output_f)
-                    print("\n".join([self.vocab.decode(utter) for utter in one_conv_ground_truth]), file=output_f)
-                    conv_idx += 1
+        if file_write:
+            target_file_name = 'responses_{}_{}_{}_{}_{}.txt'.format(self.config.mode, n_context, n_sample_step,
+                                                                    beam_size, self.epoch_i)
+            print("Writing candidates into file {}".format(target_file_name))
+            conv_idx = 0
+            with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
+                for contexts, samples, ground_truths in tqdm(zip(context_history, sample_history, ground_truth_history),
+                                                            total=len(context_history), ncols=80):
+                    for one_conv_contexts, one_conv_samples, one_conv_ground_truth in zip(contexts, samples, ground_truths):
+                        print("Conversation Context {}".format(conv_idx), file=output_f)
+                        print("\n".join([self.vocab.decode(utter) for utter in one_conv_contexts]), file=output_f)
+                        print("\n".join([self.vocab.decode(utter) for utters_beam in one_conv_samples for utter in utters_beam]), file=output_f)
+                        print("\n".join([self.vocab.decode(utter) for utter in one_conv_ground_truth]), file=output_f)
+                        conv_idx += 1
 
-        return conv_idx
+            return conv_idx
+        
+        else: 
+            input_history = []
+            genreated_history = []
+            for contexts, samples in zip(context_history, sample_history):
+                inputs = []
+                generated = []
+                for one_conv_contexts in contexts: 
+                    inputs += [self.vocab.decode(utter) for utter in one_conv_contexts]
+                for one_conv_samples in samples: 
+                    generated += [self.vocab.decode(utter) for utters_beam in one_conv_samples for utter in utters_beam]
+                input_history.append(inputs)
+                genreated_history.append(generated)
+            return input_history, genreated_history

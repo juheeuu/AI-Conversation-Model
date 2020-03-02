@@ -21,7 +21,7 @@ def main():
     convs_ground_truth = list()
     num_answers = 1
 
-    if dataset == "cornell2" or dataset == "ubuntu":
+    if dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
         special_tokens = {
             'pad_token': PAD_TOKEN,
@@ -45,7 +45,7 @@ def main():
                 break
             elif key.endswith("encoder.embedding.weight"):
                 embedding_weight_name = key
-                num_answers = 5
+                num_answers = int(target_file_path.split('_')[-2])
                 break
         assert embedding_weight_name != None
         weight_tensor = state_dict[embedding_weight_name]
@@ -90,7 +90,7 @@ def main():
             dist1_list += top_answer.split()
 
             try: 
-                if dataset == "cornell2" or dataset == "ubuntu":
+                if dataset == "cornell2" or dataset == "ubuntu" or dataset =="twitter_s":
                     ground_truth_utter_ids = vocab.encode(ground_truth_utter)
                     top_answer_utter_ids = vocab.encode(top_answer)
                 embedding_list.append(embedding_compute(ground_truth_utter_ids, top_answer_utter_ids, embedding))
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     try:
         target_file_path = sys.argv[1]
         dataset = sys.argv[2]
-        if dataset == "cornell2" or dataset == "ubuntu":
+        if dataset == "cornell2" or dataset == "ubuntu" or dataset =="twitter_s":
             checkpoint_path = sys.argv[3]
             model_name = sys.argv[4]
         else:

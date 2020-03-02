@@ -23,13 +23,23 @@ def main():
         config.vocab_size = len(vocab)
         config.vocab = vocab
         config.pad_id = vocab.pad_token_id
+        config.eos_id = vocab.eos_token_id 
+        config.sos_id = vocab.bos_token_id 
 
         convs = [
-            [["u44", "What's wrong with that?"], ["u29", "We don't have her I.D. yet, but one of your girls was killed last night at the King Edward Hotel."], ["u44", "What's wrong with that?"]],
-            [["u0", "hello"], ["u1", "i love you"], ["u0", "what??"]],
+            [["u0", "how's the weather today in Daejeon?"], ["u1", "It's rainy... "], ["u0", "Did you take your umbrella?"], ["u1", "Sure I did"]],
+            [["u0", "how's the weather today?"], ["u1", "Sure I did"]],
+            [["u0", "did you have a nice weekends?"], ["u1", "sure"], ["u0", "where did you go?"]],
+            [["u0", "did you have a nice weekends?"], ["u1", "sure, It was wonderful :)"]],
+            [["u0", "did you take your umbrella?"], ["u1", "sure, It was wonderful :)"]], 
+            [["u0", "I hurt my legs"], ["u1", "oh,, i'm sorry to hear that"]],
+            [["u200", "Do u love me?"], ["u1", "oh,, i'm sorry to hear that"]],
+            [["u0", "I hurt my legs"], ["u1", "oh,, i'm sorry to hear that"], ["u0", "thanks"]],
+            [["u0", "how's the weather today in Daejeon?"], ["u1", "Sure I did"]],
+            [["u0", "how's the weather today in Daejeon?"], ["u1", "It's sunny today!"], ["u0", "Did you take your umbrella?"], ["u1", "Sure I did"]],
             [["u0", "hello"], ["u1", "i hate you"], ["u0", "what??"]],
+            [["u0", "hello"], ["u1", "i love you"], ["u0", "what??"]],
             [["u0", "hello"], ["u1", "i dont't have a girlfriend likes you"], ["u0", "i know"]]
-
         ]
     
     else: 
@@ -62,7 +72,7 @@ def main():
         solver = model_solver(config, None, data_loader, vocab=vocab, is_train=False)
 
         solver.build()
-        inputs, outputs = solver.export_samples(file_write=False)
+        inputs, outputs = solver.export_samples(config.beam_size, file_write=False)
 
         for i, utter in enumerate(outputs):
             if model_i == 0: 
@@ -74,10 +84,15 @@ def main():
 
     with open(result_path, 'w') as fw:
         for input_utter, outputs in zip(inputs, total_outputs): 
-            print(input_utter, file=fw)
+            # print(input_utter, file=fw)
+            # for i, output in enumerate(outputs):
+            #     print("{} : {}".format(model_names[i], output), file=fw)
+            # print('============================', file=fw)
+            print(input_utter)
             for i, output in enumerate(outputs):
-                print("{} : {}".format(model_names[i], output), file=fw)
-            print('============================', file=fw)
+                print("{} : {}".format(model_names[i], output))
+            print('============================')
+
 
 if __name__ == "__main__":
     main()

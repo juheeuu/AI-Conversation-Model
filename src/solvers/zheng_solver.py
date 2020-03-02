@@ -289,7 +289,7 @@ class SolverZHENG(Solver):
                 ground_truth_history.append(ground_truth)
 
         if file_write:
-            target_file_name = 'responses_{}_{}_{}.txt'.format(self.config.mode, beam_size, self.epoch_i)
+            target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, self.config.n_context, beam_size, self.epoch_i)
             print("Writing candidates into file {}".format(target_file_name))
             conv_idx = 0 
             with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:

@@ -109,10 +109,14 @@ class TransformerBasedConvDataset(Dataset):
         self.len = len(convs)
         self.max_seq_len = config.max_seq_len
         self.users = config.users 
+        self.n_context = config.n_context
     
     def __getitem__(self, index):
 
         conv = self.convs[index]
+
+        if self.n_context != 0: 
+            conv = conv[:self.n_context+1]
 
         inputs = []
         input_users = []
@@ -171,7 +175,7 @@ class TransformerBasedConvDataset(Dataset):
 
 
 def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_users=None, batch_size=100, 
-                shuffle=True, is_ptb_model=False, model=None, dataset=None, config=None):
+                shuffle=True, model=None, dataset=None, config=None):
     def collate_fn(data):
         # Sort by conversation length (descending order) to use 'pack_padded_sequence'
         data.sort(key=lambda x: x[1], reverse=True)

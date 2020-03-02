@@ -36,6 +36,7 @@ def dist_compute(all_response, dist_n=1):
         return 0.0 
     ngrams = zip(*[all_response[i:] for i in range(dist_n)])
     distinct_ngrams = set(ngrams)
+
     return len(distinct_ngrams) / len(all_response)
 
 

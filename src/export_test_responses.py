@@ -39,13 +39,16 @@ def main():
         config.vocab_size = len(vocab)
         config.vocab = vocab
         config.pad_id = vocab.pad_token_id
+        config.eos_id = vocab.eos_token_id 
+        config.sos_id = vocab.bos_token_id 
 
         data_loader = get_loader(convs=load_pickle(config.convs_path),
                                     vocab=vocab, 
                                     batch_size=config.batch_size,
                                     model=config.model,
                                     dataset=config.data_name,
-                                    config=config)
+                                    config=config,
+                                    shuffle=False)
     else: 
         raise ValueError("{} Sorry... We don't support that data".format(config.data_name))
 

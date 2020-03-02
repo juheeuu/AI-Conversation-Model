@@ -11,8 +11,8 @@ class BaseRNNDecoder(nn.Module):
     def __init__(self):
         super(BaseRNNDecoder, self).__init__()
 
-    def init_token(self, batch_size):
-        x = to_var(torch.LongTensor([SOS_ID] * batch_size))
+    def init_token(self, batch_size, sos_id=SOS_ID):
+        x = to_var(torch.LongTensor([sos_id] * batch_size))
         return x
 
     def init_h(self, batch_size=None, zero=True, hidden=None):
@@ -96,7 +96,8 @@ class BaseRNNDecoder(nn.Module):
 
 class DecoderRNN(BaseRNNDecoder):
     def __init__(self, vocab_size, embedding_size, hidden_size, rnncell=StackedGRUCell, num_layers=1,
-                 dropout=0.0, word_drop=0.0, max_unroll=30, sample=True, temperature=1.0, beam_size=1):
+                 dropout=0.0, word_drop=0.0, max_unroll=30, sample=True, temperature=1.0, beam_size=1,
+                 eos_id=EOS_ID, sos_id=SOS_ID):
         super(DecoderRNN, self).__init__()
 
         self.vocab_size = vocab_size
@@ -109,6 +110,8 @@ class DecoderRNN(BaseRNNDecoder):
         self.max_unroll = max_unroll
         self.sample = sample
         self.beam_size = beam_size
+        self.eos_id = eos_id
+        self.sos_id = sos_id 
 
         self.embedding = nn.Embedding(vocab_size, embedding_size)
 
@@ -149,6 +152,46 @@ class DecoderRNN(BaseRNNDecoder):
                 x_list.append(x)
 
             return torch.stack(x_list, dim=1)
+    
+    def beam_decode(self, init_h=None, encoder_outputs=None, input_valid_length=None, decode=False):
+        batch_size = self.batch_size(h=init_h)
+
+        x = self.init_token(batch_size * self.beam_size, self.sos_id)
+
+        h = self.init_h(batch_size, hidden=init_h).repeat(1, self.beam_size, 1)
+
+        batch_position = to_var(torch.arange(0, batch_size).long() * self.beam_size)
+
+        score = torch.ones(batch_size * self.beam_size) * -float('inf')
+        score.index_fill_(0, torch.arange(0, batch_size).long() * self.beam_size, 0.0)
+        score = to_var(score)
+
+        beam = Beam(batch_size, self.hidden_size, self.vocab_size, self.beam_size, self.max_unroll, batch_position)
+
+        for i in range(self.max_unroll):
+            out, h = self.forward_step(x, h, encoder_outputs=encoder_outputs, input_valid_length=input_valid_length)
+            log_prob = F.log_softmax(out, dim=1)
+
+            score = score.view(-1, 1) + log_prob
+
+            score, top_k_idx = score.view(batch_size, -1).topk(self.beam_size, dim=1)
+
+            x = (top_k_idx % self.vocab_size).view(-1)
+
+            beam_idx = top_k_idx / self.vocab_size  # [batch_size, beam_size]
+            top_k_pointer = (beam_idx + batch_position.unsqueeze(1)).view(-1)
+
+            h = h.index_select(1, top_k_pointer)
+
+            beam.update(score.clone(), top_k_pointer, x)  # , h)
+
+            eos_idx = x.data.eq(self.eos_id).view(batch_size, self.beam_size)
+            if eos_idx.nonzero().dim() > 0:
+                score.data.masked_fill_(eos_idx, -float('inf'))
+
+        prediction, final_score, length = beam.backtrack()
+
+        return prediction, final_score, length
 
 
 class DecoderSARNN(BaseRNNDecoder):

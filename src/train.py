@@ -3,7 +3,7 @@ from config import get_config
 from utils import Vocab
 import os
 import solvers
-from utils import load_pickle, PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN
+from utils import load_pickle, PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN, EOS_ID
 import torch 
 import sentencepiece as spm
 from transformers import OpenAIGPTTokenizer
@@ -20,6 +20,7 @@ if __name__ == '__main__':
         vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
         config.vocab_size = vocab.vocab_size
         config.pad_id = vocab.pad_id
+        config.eos_id = EOS_ID
 
         print(f'Vocabulary size: {vocab.vocab_size}')
 
@@ -59,6 +60,8 @@ if __name__ == '__main__':
         config.vocab_size = len(vocab)
         config.vocab = vocab
         config.pad_id = vocab.pad_token_id
+        config.eos_id = vocab.eos_token_id
+        config.sos_id = vocab.bos_token_id 
 
         train_data_loader = get_loader(convs=load_pickle(config.convs_path),
                                         vocab=vocab, 

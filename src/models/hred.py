@@ -19,7 +19,8 @@ class HRED(nn.Module):
 
         self.decoder = layers.DecoderRNN(config.vocab_size, config.embedding_size, config.decoder_hidden_size,
                                          config.rnncell, config.num_layers, config.dropout, config.word_drop,
-                                         config.max_unroll, config.sample, config.temperature, config.beam_size)
+                                         config.max_unroll, config.sample, config.temperature, config.beam_size,
+                                         config.eos_id, config.sos_id)
 
         self.context2decoder = layers.FeedForward(config.context_size,
                                                   config.num_layers * config.decoder_hidden_size,
