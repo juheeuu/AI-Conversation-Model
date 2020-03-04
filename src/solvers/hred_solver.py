@@ -226,7 +226,6 @@ class SolverHRED(Solver):
                 for one_conv_contexts in contexts: 
                     inputs += [self.vocab.decode(utter) for utter in one_conv_contexts]
                 for one_conv_samples in samples: 
-                    generated += [self.vocab.decode(utter) for utters_beam in one_conv_samples for utter in utters_beam]
+                    genreated_history += [self.vocab.decode(utter) for utters_beam in one_conv_samples for utter in utters_beam]
                 input_history.append(inputs)
-                genreated_history.append(generated)
             return input_history, genreated_history
