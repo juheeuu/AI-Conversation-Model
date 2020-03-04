@@ -2,7 +2,8 @@ from torch.utils.data import Dataset, DataLoader
 import pickle
 import logging
 import sentencepiece as spm
-
+from torch.nn.utils.rnn import pad_sequence
+import torch 
 
 class ConvDataset(Dataset):
     def __init__(self, convs, convs_length, utterances_length, vocab):
@@ -173,6 +174,80 @@ class TransformerBasedConvDataset(Dataset):
         
         return text 
 
+class DialoGPTFeature(object):
+    def __init__(self, input_ids, position_ids, token_type_ids, lm_labels):
+        self.input_ids = input_ids
+        self.position_ids = position_ids
+        self.token_type_ids = token_type_ids
+        self.lm_labels = lm_labels
+
+class DialoGPTDataset(Dataset):
+    def __init__(self, convs, vocab, config):
+        self.vocab = vocab 
+        self.convs = convs 
+        self.len = len(convs)
+        self.max_seq_len = config.max_seq_len
+    
+    def __len__(self):
+        return self.len 
+    
+    def __getitem__(self, index):
+        # conversation = user1 : [hi] / user2 : [how] [are] [u?] / user3: [fine] [thank] [you.]
+        # input_ids =      [hi] [eos] [how] [are] [u?] [eos] [fine] [thank] [you]
+        # position_ids =   [0]  [1]   [2]   [3]   [4]  [5]   [6]    [7]     [8]
+        # token_type_ids = [0]  [1]   [1]   [1]   [1]  [2]   [2]    [2]     [2]
+        # lm_labels      = [-1] [how] [are] [u?] [eos] [fine] [thank] [you] [eos]  
+
+        eos_id = self.vocab.encoder['<|endoftext|>']
+
+        conv = self.convs[index]
+        max_seq_len = self.max_seq_len
+
+        token_type_ids = []
+        lm_labels = []
+
+        # processed for max sequence length
+        len_ = 0
+        conv_ids = []
+        for elem in conv:
+            utter_id = self.vocab.encode(elem[1]) if isinstance(elem, list) else self.vocab.encode(elem)
+            len_ = len(utter_id)
+            if len_ > self.max_seq_len - 1: 
+                break
+            conv_ids.append(utter_id) 
+
+        input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
+        for i, conv_id in enumerate(conv_ids): 
+            if i == 0: 
+                lm_labels += [-1] * len(conv_id)
+                token_type_ids += [0] * len(conv_id)
+            else:
+                lm_labels += conv_id + [eos_id]
+                token_type_ids += [i] * (len(conv_id) + 1)
+        position_ids = list(range(len(input_ids)))
+        assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels))
+
+        return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels)
+
+    @staticmethod
+    def collate(features):
+        input_ids = pad_sequence([torch.tensor(f.input_ids, dtype=torch.long)
+                                  for f in features],
+                                 batch_first=True, padding_value=0)
+        position_ids = pad_sequence([torch.tensor(f.position_ids,
+                                                  dtype=torch.long)
+                                     for f in features],
+                                    batch_first=True, padding_value=0)
+        token_type_ids = pad_sequence([torch.tensor(f.token_type_ids,
+                                                    dtype=torch.long)
+                                       for f in features],
+                                      batch_first=True, padding_value=0)
+        labels = pad_sequence([torch.tensor(f.lm_labels, dtype=torch.long)
+                               for f in features],
+                              batch_first=True, padding_value=-1)
+        return (input_ids, position_ids, token_type_ids, labels)
+
+
 
 def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_users=None, batch_size=100, 
                 shuffle=True, model=None, dataset=None, config=None):
@@ -180,8 +255,11 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
         # Sort by conversation length (descending order) to use 'pack_padded_sequence'
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
-
-    if (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu" or dataset=="twitter_s"):
+    
+    if (model == "DialoGPT") and (dataset == "cornell2"):
+        dataset = DialoGPTDataset(convs, vocab, config)
+        collate_fn = DialoGPTDataset.collate
+    elif (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu" or dataset=="twitter_s"):
         dataset = TransformerBasedConvDataset(convs, vocab, config)
     elif model == "HRED" and (dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s"):
         dataset = Cornell2HREDDataset(convs, vocab, config)

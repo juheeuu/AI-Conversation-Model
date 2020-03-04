@@ -6,7 +6,7 @@ import solvers
 from utils import load_pickle, PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN, EOS_ID
 import torch 
 import sentencepiece as spm
-from transformers import OpenAIGPTTokenizer
+from transformers import OpenAIGPTTokenizer, GPT2Tokenizer
 import os
 
 if __name__ == '__main__':
@@ -48,6 +48,26 @@ if __name__ == '__main__':
                                     batch_size=val_config.eval_batch_size,
                                     is_ptb_model=(val_config.model=="ZHENG") or (val_config.model=="Transformer"))
     
+    elif config.data_name == "cornell2" and config.model == "DialoGPT":
+        vocab = GPT2Tokenizer.from_pretrained('gpt2')
+        config.vocab_size = len(vocab)
+        config.vocab = vocab
+
+        train_data_loader = get_loader(convs=load_pickle(config.convs_path),
+                                        vocab=vocab, 
+                                        batch_size=config.batch_size,
+                                        model=config.model,
+                                        dataset=config.data_name,
+                                        config=config)
+        
+        eval_data_loader = get_loader(convs=load_pickle(val_config.convs_path),
+                                        vocab=vocab,
+                                        batch_size=val_config.batch_size,
+                                        model=val_config.model,
+                                        dataset=config.data_name,
+                                        config=config)
+
+
     elif config.data_name == "cornell2" or "ubuntu":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
         special_tokens = {
