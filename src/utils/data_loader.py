@@ -210,11 +210,16 @@ class DialoGPTDataset(Dataset):
         len_ = 0
         conv_ids = []
         for elem in conv:
-            utter_id = self.vocab.encode(elem[1]) if isinstance(elem, list) else self.vocab.encode(elem)
-            len_ = len(utter_id)
-            if len_ > self.max_seq_len - 1: 
+            utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-2)) if isinstance(elem, list) else self.vocab.encode(elem)
+            len_ += len(utter_id)
+            if len_ > self.max_seq_len - len(conv) - 2:
+                if len(conv_ids) == 1:
+                    utter_id = utter_id[:self.max_seq_len - len(conv) - 2 - len(conv_ids[0])]
+                    conv_ids.append(utter_id)
                 break
             conv_ids.append(utter_id) 
+        
+        assert len(conv_ids) >= 2
 
         input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
         for i, conv_id in enumerate(conv_ids): 

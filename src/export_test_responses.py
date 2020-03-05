@@ -2,7 +2,7 @@ from config import get_config
 from utils import Vocab, get_loader, load_pickle, PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN
 import solvers
 import torch
-from transformers import OpenAIGPTTokenizer
+from transformers import OpenAIGPTTokenizer, GPT2Tokenizer
 
 def main():
     config = get_config(mode='test')
@@ -26,6 +26,18 @@ def main():
                                 utterances_length=load_pickle(config.utterances_length_path),
                                 vocab=vocab, batch_size=config.batch_size, shuffle=False, convs_users=test_users,
                                 is_ptb_model=(config.model=="PTB"))
+    
+    elif config.data_name == "cornell2" and config.model == "DialoGPT":
+        vocab = GPT2Tokenizer.from_pretrained('gpt2')
+        config.vocab_size = len(vocab)
+        config.vocab = vocab
+        data_loader = get_loader(convs=load_pickle(config.convs_path),
+                                    vocab=vocab, 
+                                    batch_size=config.batch_size,
+                                    model=config.model,
+                                    dataset=config.data_name,
+                                    config=config,
+                                    shuffle=False)
 
     elif config.data_name == "cornell2" or config.data_name == "ubuntu" or config.data_name == "twitter_s":
         vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')

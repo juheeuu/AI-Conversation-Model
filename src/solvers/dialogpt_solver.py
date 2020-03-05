@@ -47,32 +47,26 @@ class SolverDialoGPT(Solver):
 
             epoch_loss = 0.0
 
-            for batch_i, (batch) in enumerate(tqdm(self.train_data_loader, ncols=80)):
-                print(batch)
-                exit()
-
-                # the mask should be a BoolTensor if padding True else False
-                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
-                input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device) == 0
-                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
-                target_utterance_mask = torch.LongTensor(target_utterance_mask).to(self.config.device) == 0
+            for batch_i, batch in enumerate(tqdm(self.train_data_loader, ncols=80)):
 
                 self.optimizer.zero_grad()
                 self.model.zero_grad()
+
+                batch = tuple(t.to(self.config.device) for t in batch)
+                input_ids, position_ids, token_ids, label_ids = batch
+                inputs = {
+                    'input_ids': input_ids,
+                    'position_ids': position_ids,
+                    'token_type_ids': token_ids, 
+                    'lm_labels': label_ids
+                }
+
+                outputs = self.model(**inputs)
+
+                loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
+                batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
+                                label_ids.view(-1))
                 
-                loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
-                target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
-                target_mask = target_utterance_mask[..., :-1].contiguous()
-
-                outputs = self.model(
-                    input_utterances, 
-                    input_utterances_mask,
-                    target,
-                    target_mask
-                )
-
-                batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)), gt_target.view(-1))
-
                 assert not isnan(batch_loss.item())
 
                 if self.config.n_gpu > 1: 
@@ -121,30 +115,24 @@ class SolverDialoGPT(Solver):
         self.model.eval()
         epoch_loss = 0.0
 
-        for batch_i, (input_utterances,
-                      input_utterances_mask,
-                      target_utterance,
-                      target_utterance_mask) in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+        for batch_i, batch in enumerate(tqdm(self.eval_data_loader, ncols=80)):
                 
             with torch.no_grad():
-                input_utterances = torch.LongTensor(input_utterances).to(self.config.device)
-                input_utterances_mask = torch.LongTensor(input_utterances_mask).to(self.config.device) == 0
-                target_utterance = torch.LongTensor(target_utterance).to(self.config.device)
-                target_utterance_mask = torch.BoolTensor(target_utterance_mask).to(self.config.device) == 0
+                batch = tuple(t.to(self.config.device) for t in batch)
+            
+            input_ids, position_ids, token_ids, label_ids = batch
+            inputs = {
+                'input_ids': input_ids,
+                'position_ids': position_ids,
+                'token_type_ids': token_ids, 
+                'lm_labels': label_ids
+            }
 
+            outputs = self.model(**inputs)
 
-            loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_id)
-            target, gt_target = target_utterance[..., :-1].contiguous(), target_utterance[..., 1:].contiguous()
-            target_mask = target_utterance_mask[..., :-1].contiguous()
-
-            outputs = self.model(
-                 input_utterances, 
-                input_utterances_mask,
-                target,
-                target_mask
-            )
-
-            batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)), gt_target.view(-1))
+            loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
+            batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
+                                label_ids.view(-1))
 
             if self.config.n_gpu > 1:
                 batch_loss = batch_loss.mean()
@@ -157,5 +145,66 @@ class SolverDialoGPT(Solver):
         return epoch_loss
 
     
-    def export_samples(self):
-        pass 
+    def export_samples(self, beam_size, file_write=True):
+        self.model.eval()
+        context_history = list()
+        sample_history = list()
+        ground_truth_history = list()
+        generated_history = list()
+        input_history = list()
+
+        for batch_i, batch in enumerate(tqdm(self.eval_data_loader, ncols=80)):
+           
+            with torch.no_grad():
+                batch = tuple(t.to(self.config.device) for t in batch)
+            
+            input_ids, position_ids, token_ids, label_ids = batch
+
+            gt_mask = label_ids != -1 
+            gt_ids = input_ids[gt_mask][1:]
+
+            input_mask = label_ids == -1 
+            input_mask = torch.cat((torch.BoolTensor([[True]]).to(self.config.device), input_mask),dim=1)[...,:-1]
+            input_ids = input_ids[input_mask]
+            input_ids = input_ids.unsqueeze(0)
+
+            output_sequences = self.model.generate(
+                input_ids=input_ids,
+                max_length=self.config.max_seq_len,
+                temperature=0.9,
+                top_k=0,
+                top_p=0.9,
+                repetition_penalty=1.0,
+                do_sample=True,
+                num_return_sequences=1,
+                eos_token_ids=self.config.vocab.eos_token_id
+            )
+
+            output_sequences.squeeze_()
+            output = output_sequences.tolist()
+            output = self.vocab.decode(output, clean_up_tokenization_spaces=True)
+            output = output.split(self.vocab.eos_token)
+            generated_history.append(output[1])
+
+            input_ids.squeeze_()
+            input_ids = input_ids.tolist()
+            inputs = self.vocab.decode(input_ids, clean_up_tokenization_spaces=True)
+            input_history.append(inputs)
+
+            gt_ids.squeeze_()
+            gt_ids = gt_ids.tolist()
+            gt = self.vocab.decode(gt_ids, clean_up_tokenization_spaces=True)
+            gt = gt.split(self.vocab.eos_token)
+            ground_truth_history.append(gt[0])
+
+        target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, self.config.n_context, beam_size, self.epoch_i)
+        print("Writing candidates into file {}".format(target_file_name))
+        conv_idx = 0 
+        with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
+            for input_utter, generated, ground_truth in tqdm(zip(input_history, generated_history, ground_truth_history)):
+                print("Conversation Context {}".format(conv_idx), file=output_f)
+                print(input_utter, file=output_f)
+                print(generated, file=output_f)
+                print(ground_truth, file=output_f)
+                conv_idx += 1
+        return conv_idx

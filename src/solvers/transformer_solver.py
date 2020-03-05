@@ -10,7 +10,6 @@ import codecs
 import sys
 from .solver import Solver
 import torch.nn.functional as F
-from subprocess import call
 
 class SolverTransformer(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
