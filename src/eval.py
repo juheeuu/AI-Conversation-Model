@@ -8,7 +8,7 @@ import tabulate
 import torch.nn as nn 
 import torch 
 import pickle
-from transformers import OpenAIGPTTokenizer
+from transformers import OpenAIGPTTokenizer, GPT2Tokenizer
 
 def main():
     bleu_list = list()
@@ -22,18 +22,18 @@ def main():
     num_answers = 1
 
     if dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s":
-        vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
-        special_tokens = {
-            'pad_token': PAD_TOKEN,
-            'bos_token': SOS_TOKEN,
-            'eos_token': EOS_TOKEN,
-            'sep_token': SEP_TOKEN,
-        }
-        vocab.add_special_tokens(special_tokens)
-
+        if model_name == "DialoGPT":
+            vocab = GPT2Tokenizer.from_pretrained('gpt2')
+        else:
+            vocab = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
+            special_tokens = {
+                'pad_token': PAD_TOKEN,
+                'bos_token': SOS_TOKEN,
+                'eos_token': EOS_TOKEN,
+                'sep_token': SEP_TOKEN,
+            }
+            vocab.add_special_tokens(special_tokens)
         state_dict = torch.load(checkpoint_path)
-
-        embedding_weight_name = "encoder.embedding.weight"
 
         embedding_weight_name = None
         for key in state_dict.keys():
@@ -47,6 +47,8 @@ def main():
                 embedding_weight_name = key
                 num_answers = int(target_file_path.split('_')[-2])
                 break
+            elif key.endswith("wte.weight"):
+                embedding_weight_name = key
         assert embedding_weight_name != None
         weight_tensor = state_dict[embedding_weight_name]
         embedding = nn.Embedding.from_pretrained(weight_tensor).to("cpu")
@@ -142,7 +144,7 @@ if __name__ == "__main__":
         dataset = sys.argv[2]
         if dataset == "cornell2" or dataset == "ubuntu" or dataset =="twitter_s":
             checkpoint_path = sys.argv[3]
-            model_name = sys.argv[4]
+            model_name = checkpoint_path.split('/')[-3]
         else:
             id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
             pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]
@@ -150,6 +152,5 @@ if __name__ == "__main__":
         print("Usage: python eval.py target_file_path")
 
     num_turn = 2
-    num_answers = 5
 
     main()

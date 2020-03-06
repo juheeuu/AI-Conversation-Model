@@ -27,7 +27,7 @@ def main():
                                 vocab=vocab, batch_size=config.batch_size, shuffle=False, convs_users=test_users,
                                 is_ptb_model=(config.model=="PTB"))
     
-    elif config.data_name == "cornell2" and config.model == "DialoGPT":
+    elif config.model == "DialoGPT":
         vocab = GPT2Tokenizer.from_pretrained('gpt2')
         config.vocab_size = len(vocab)
         config.vocab = vocab
