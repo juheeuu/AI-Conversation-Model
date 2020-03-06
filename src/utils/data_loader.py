@@ -210,7 +210,8 @@ class DialoGPTDataset(Dataset):
         len_ = 0
         conv_ids = []
         for elem in conv:
-            utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-2)) if isinstance(elem, list) else self.vocab.encode(elem)
+            utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-2)) if isinstance(elem, list) \
+                                                                                    or isinstance(elem, tuple) else self.vocab.encode(elem)
             len_ += len(utter_id)
             if len_ > self.max_seq_len - len(conv) - 2:
                 if len(conv_ids) == 1:
@@ -261,7 +262,7 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
         data.sort(key=lambda x: x[1], reverse=True)
         return zip(*data)
     
-    if (model == "DialoGPT") and (dataset == "cornell2"):
+    if (model == "DialoGPT"):
         dataset = DialoGPTDataset(convs, vocab, config)
         collate_fn = DialoGPTDataset.collate
     elif (model == "ZHENG" or model == "Transformer")  and (dataset == "cornell2" or dataset == "ubuntu" or dataset=="twitter_s"):

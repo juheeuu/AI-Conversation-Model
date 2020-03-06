@@ -18,13 +18,17 @@ class DialoGPT(nn.Module):
         self.gpt2 = GPT2(gpt2_config)
         self.gpt2.load_state_dict(torch.load(pretrained_path), strict=False)
 
+        if config.users:
+            self.user_embed = nn.Embedding(config.user_size, gpt2_config.n_embd)
+            self.user_linear = nn.Linear(gpt2_config.n_embd, gpt2_config.vocab_size)
 
     def forward(self, 
             input_ids=None,
             position_ids=None,
             token_type_ids=None,
             lm_labels=None,
-            past=None
+            past=None,
+            user_ids = None, 
         ):
         
         outputs = self.gpt2(
@@ -33,7 +37,10 @@ class DialoGPT(nn.Module):
             token_type_ids=token_type_ids,
             lm_labels=input_ids,
             past=past
-        )
+        ) # (batch_size, seq_len, vocab_size)
+
+        if config.users:
+            outputs += self.user_linear(self.user_embed(user_ids)) # (batch_size, seq_len, vocab_size)
 
         return outputs
 
