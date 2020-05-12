@@ -102,7 +102,7 @@ def get_config(parse=True, **optional_kwargs):
                         help='if false, use beam search for decoding')
     parser.add_argument('--temperature', type=float, default=1.0)
     parser.add_argument('--beam_size', type=int, default=2)
-    parser.add_argument('--max_seq_len', type=int, default=1024)
+    parser.add_argument('--max_seq_len', type=int, default=512)
 
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
@@ -148,9 +148,8 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--data_name', type=str, default='tc_10_15')
     parser.add_argument('--pretrained_wv', type=str2bool, default=False)
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
-    parser.add_argument('--lm_data_path', type=str, default='all.merge')
-    parser.add_argument('--spm_model_path', type=str, default='spm.model')
-    parser.add_argument('--pretrained', type=bool, default=True)
+    parser.add_argument('--pretrained_path', type=str, default='medium_ft.pkl')
+    parser.add_argument('--reversed', type=bool, default=False)
 
     if parse:
         kwargs = parser.parse_args()

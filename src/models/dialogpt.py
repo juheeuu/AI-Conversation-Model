@@ -15,7 +15,7 @@ class DialoGPT(nn.Module):
         gpt2_config = GPT2Config(n_ctx=1024, n_embd=1024, n_layer=24, n_head=16)
         self.gpt2_config = gpt2_config
         project_dir = config.dataset_dir.parent.parent
-        pretrained_path = os.path.join(project_dir, 'src', 'models', 'pretrained', 'medium_ft.pkl')
+        pretrained_path = os.path.join(project_dir, 'src', 'models', 'pretrained', config.pretrained_path)
 
         self.gpt2 = GPT2(gpt2_config)
         self.gpt2.load_state_dict(torch.load(pretrained_path), strict=False)

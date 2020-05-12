@@ -188,6 +188,7 @@ class DialoGPTDataset(Dataset):
         self.convs = convs 
         self.len = len(convs)
         self.max_seq_len = config.max_seq_len
+        self.config = config
     
     def __len__(self):
         return self.len 
@@ -222,6 +223,9 @@ class DialoGPTDataset(Dataset):
             conv_ids.append(utter_id) 
         
         assert len(conv_ids) >= 2
+
+        if self.config.reversed:
+            conv_ids = list(reversed(conv_ids))
 
         input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
         user_ids = []
