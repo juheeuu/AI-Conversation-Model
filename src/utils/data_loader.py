@@ -175,11 +175,12 @@ class TransformerBasedConvDataset(Dataset):
         return text 
 
 class DialoGPTFeature(object):
-    def __init__(self, input_ids, position_ids, token_type_ids, lm_labels):
+    def __init__(self, input_ids, position_ids, token_type_ids, lm_labels, user_ids):
         self.input_ids = input_ids
         self.position_ids = position_ids
         self.token_type_ids = token_type_ids
         self.lm_labels = lm_labels
+        self.user_ids = user_ids 
 
 class DialoGPTDataset(Dataset):
     def __init__(self, convs, vocab, config):
@@ -223,17 +224,22 @@ class DialoGPTDataset(Dataset):
         assert len(conv_ids) >= 2
 
         input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
+        user_ids = []
         for i, conv_id in enumerate(conv_ids): 
+            user_id = int(elem[0].replace('u', '').strip()) + 1 if isinstance(conv[i][0], str) else conv[i][0]
             if i == 0: 
                 lm_labels += [-1] * len(conv_id)
                 token_type_ids += [0] * len(conv_id)
+
+                user_ids += [user_id] * len(conv_id)
             else:
                 lm_labels += conv_id + [eos_id]
                 token_type_ids += [i] * (len(conv_id) + 1)
+                user_ids += [user_id] * (len(conv_id) + 1)
         position_ids = list(range(len(input_ids)))
-        assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels))
+        assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels) == len(user_ids))
 
-        return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels)
+        return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels, user_ids)
 
     @staticmethod
     def collate(features):
@@ -251,7 +257,10 @@ class DialoGPTDataset(Dataset):
         labels = pad_sequence([torch.tensor(f.lm_labels, dtype=torch.long)
                                for f in features],
                               batch_first=True, padding_value=-1)
-        return (input_ids, position_ids, token_type_ids, labels)
+        user_ids = pad_sequence([torch.tensor(f.user_ids, dtype=torch.long)
+                                for f in features],
+                                batch_first=True, padding_value=0)
+        return (input_ids, position_ids, token_type_ids, labels, user_ids)
 
 
 

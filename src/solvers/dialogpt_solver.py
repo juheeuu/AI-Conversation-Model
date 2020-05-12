@@ -53,12 +53,13 @@ class SolverDialoGPT(Solver):
                 self.model.zero_grad()
 
                 batch = tuple(t.to(self.config.device) for t in batch)
-                input_ids, position_ids, token_ids, label_ids = batch
+                input_ids, position_ids, token_ids, label_ids, user_ids = batch
                 inputs = {
                     'input_ids': input_ids,
                     'position_ids': position_ids,
                     'token_type_ids': token_ids, 
-                    'lm_labels': label_ids
+                    'lm_labels': label_ids,
+                    'user_ids': user_ids
                 }
 
                 outputs = self.model(**inputs)
@@ -120,12 +121,13 @@ class SolverDialoGPT(Solver):
             with torch.no_grad():
                 batch = tuple(t.to(self.config.device) for t in batch)
             
-            input_ids, position_ids, token_ids, label_ids = batch
+            input_ids, position_ids, token_ids, label_ids, user_ids = batch
             inputs = {
                 'input_ids': input_ids,
                 'position_ids': position_ids,
                 'token_type_ids': token_ids, 
-                'lm_labels': label_ids
+                'lm_labels': label_ids,
+                'user_ids': user_ids
             }
 
             outputs = self.model(**inputs)
@@ -158,7 +160,7 @@ class SolverDialoGPT(Solver):
             with torch.no_grad():
                 batch = tuple(t.to(self.config.device) for t in batch)
             
-            input_ids, position_ids, token_ids, label_ids = batch
+            input_ids, position_ids, token_ids, label_ids, user_ids = batch
 
             gt_mask = label_ids != -1 
             gt_ids = input_ids[gt_mask][1:]
@@ -167,6 +169,9 @@ class SolverDialoGPT(Solver):
             input_mask = torch.cat((torch.BoolTensor([[True]]).to(self.config.device), input_mask),dim=1)[...,:-1]
             input_ids = input_ids[input_mask]
             input_ids = input_ids.unsqueeze(0)
+
+            if not self.config.users:
+                user_ids=None
 
             output_sequences = self.model.generate(
                 input_ids=input_ids,
@@ -177,7 +182,8 @@ class SolverDialoGPT(Solver):
                 repetition_penalty=1.0,
                 do_sample=True,
                 num_return_sequences=1,
-                eos_token_ids=self.config.vocab.eos_token_id
+                eos_token_ids=self.config.vocab.eos_token_id,
+                user_ids=user_ids
             )
 
             output_sequences.squeeze_()

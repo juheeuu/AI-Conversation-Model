@@ -11,7 +11,9 @@ import os
 class DialoGPT(nn.Module):
     def __init__(self, config):
         super(DialoGPT, self).__init__()
+        self.config = config
         gpt2_config = GPT2Config(n_ctx=1024, n_embd=1024, n_layer=24, n_head=16)
+        self.gpt2_config = gpt2_config
         project_dir = config.dataset_dir.parent.parent
         pretrained_path = os.path.join(project_dir, 'src', 'models', 'pretrained', 'medium_ft.pkl')
 
@@ -39,11 +41,12 @@ class DialoGPT(nn.Module):
             past=past
         ) # (batch_size, seq_len, vocab_size)
 
-        if config.users:
+        if self.config.users:
             outputs += self.user_linear(self.user_embed(user_ids)) # (batch_size, seq_len, vocab_size)
 
         return outputs
 
+    @torch.no_grad()
     def generate(
         self,
         input_ids=None,
@@ -59,43 +62,147 @@ class DialoGPT(nn.Module):
         eos_token_ids=None,
         length_penalty=None,
         num_return_sequences=None,
+        user_ids=None,
     ):
 
-        return self.gpt2.generate(
-            input_ids,
-            max_length,
-            do_sample,
-            num_beams,
-            temperature,
-            top_k,
-            top_p,
-            repetition_penalty,
-            bos_token_id,
-            pad_token_id,
-            eos_token_ids,
-            length_penalty,
-            num_return_sequences,
+        # We cannot generate if the model does not have a LM head
+        if self.gpt2.get_output_embeddings() is None:
+            raise AttributeError(
+                "You tried to generate sequences with a model that does not have a LM Head."
+                "Please use another model class (e.g. `OpenAIGPTLMHeadModel`, `XLNetLMHeadModel`, `GPT2LMHeadModel`, `CTRLLMHeadModel`, `T5WithLMHeadModel`, `TransfoXLLMHeadModel`)"
+            )
+
+        max_length = max_length if max_length is not None else self.gpt2_config.max_length
+        do_sample = do_sample if do_sample is not None else self.gpt2_config.do_sample
+        num_beams = num_beams if num_beams is not None else self.gpt2_config.num_beams
+        temperature = temperature if temperature is not None else self.gpt2_config.temperature
+        top_k = top_k if top_k is not None else self.gpt2_config.top_k
+        top_p = top_p if top_p is not None else self.gpt2_config.top_p
+        repetition_penalty = repetition_penalty if repetition_penalty is not None else self.gpt2_config.repetition_penalty
+        bos_token_id = bos_token_id if bos_token_id is not None else self.gpt2_config.bos_token_id
+        pad_token_id = pad_token_id if pad_token_id is not None else self.gpt2_config.pad_token_id
+        eos_token_ids = eos_token_ids if eos_token_ids is not None else self.gpt2_config.eos_token_ids
+        length_penalty = length_penalty if length_penalty is not None else self.gpt2_config.length_penalty
+        num_return_sequences = (
+            num_return_sequences if num_return_sequences is not None else self.gpt2_config.num_return_sequences
         )
 
+        if input_ids is not None:
+            batch_size = input_ids.shape[0]  # overriden by the input batch_size
+        else:
+            batch_size = 1
+        if isinstance(eos_token_ids, int):
+            eos_token_ids = [eos_token_ids]
 
-class GPT2(GPT2LMHeadModel):
-    def __init__(self, config):
-        super(GPT2, self).__init__(config)
-        self.transformer = GPT2Model(config)
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        self.init_weights()
-        # tie weight
-        self.lm_head.weight = self.transformer.wte.weight
+        assert isinstance(max_length, int) and max_length > 0, "`max_length` should be a strictly positive integer."
+        assert isinstance(do_sample, bool), "`do_sample` should be a boolean."
+        assert isinstance(num_beams, int) and num_beams > 0, "`num_beams` should be a strictly positive integer."
+        assert temperature > 0, "`temperature` should be strictly positive."
+        assert isinstance(top_k, int) and top_k >= 0, "`top_k` should be a positive integer."
+        assert 0 <= top_p <= 1, "`top_p` should be between 0 and 1."
+        assert repetition_penalty >= 1.0, "`repetition_penalty` should be >= 1."
+        assert input_ids is not None or (
+            isinstance(bos_token_id, int) and bos_token_id >= 0
+        ), "If input_ids is not defined, `bos_token_id` should be a positive integer."
+        assert pad_token_id is None or (
+            isinstance(pad_token_id, int) and (pad_token_id >= 0)
+        ), "`pad_token_id` should be a positive integer."
+        assert (eos_token_ids is None) or (
+            isinstance(eos_token_ids, (list, tuple)) and ((isinstance(e, int) and e >= 0) for e in eos_token_ids)
+        ), "`eos_token_ids` should be a positive integer or a list/tuple of positive integers."
+        assert length_penalty > 0, "`length_penalty` should be strictly positive."
+        assert (
+            isinstance(num_return_sequences, int) and num_return_sequences > 0
+        ), "`num_return_sequences` should be a strictly positive integer."
 
-    def forward(self, input_ids,position_ids=None, token_type_ids=None, lm_labels=None, past=None):
-        
-        hidden_states, presents = self.transformer(
-            input_ids, 
-            past=past,
-            position_ids=position_ids, 
-            token_type_ids=token_type_ids)
-        lm_logits = self.lm_head(hidden_states)
-        return lm_logits
+        if input_ids is None:
+            assert isinstance(bos_token_id, int) and bos_token_id >= 0, (
+                "you should either supply a context to complete as `input_ids` input "
+                "or a `bos_token_id` (integer >= 0) as a first token to start the generation."
+            )
+            input_ids = torch.full(
+                (batch_size, 1), bos_token_id, dtype=torch.long, device=next(self.parameters()).device
+            )
+        else:
+            assert input_ids.dim() == 2, "Input prompt should be of shape (batch_size, sequence length)."
+
+        # not allow to duplicate outputs when greedy decoding
+        if do_sample is False:
+            if num_beams == 1:
+                # no_beam_search greedy generation conditions
+                assert (
+                    num_return_sequences == 1
+                ), "Greedy decoding will always produce the same output for num_beams == 1 and num_return_sequences > 1. Please set num_return_sequences = 1"
+
+            else:
+                # beam_search greedy generation conditions
+                assert (
+                    num_beams >= num_return_sequences
+                ), "Greedy beam search decoding cannot return more sequences than it has beams. Please set num_beams >= num_return_sequences"
+
+        if pad_token_id is None and eos_token_ids is not None:
+            logger.warning(
+                "Setting `pad_token_id` to {} (first `eos_token_id`) to generate sequence".format(eos_token_ids[0])
+            )
+            pad_token_id = eos_token_ids[0]
+
+        # current position and vocab size
+        cur_len = input_ids.shape[1]
+        vocab_size = self.config.vocab_size
+
+        # set effective batch size and effective batch multiplier according to do_sample
+        if do_sample:
+            effective_batch_size = batch_size * num_return_sequences
+            effective_batch_mult = num_return_sequences
+        else:
+            effective_batch_size = batch_size
+            effective_batch_mult = 1
+
+        # Expand input ids if num_beams > 1 or num_return_sequences > 1
+        if num_return_sequences > 1 or num_beams > 1:
+            input_ids_len = input_ids.shape[-1]
+            input_ids = input_ids.unsqueeze(1).expand(batch_size, effective_batch_mult * num_beams, input_ids_len)
+            input_ids = input_ids.contiguous().view(
+                effective_batch_size * num_beams, input_ids_len
+            )  # shape: (batch_size * num_return_sequences * num_beams, cur_len)
+
+        if num_beams > 1:
+            assert False
+            #TODO Suppor it
+            output = self._generate_beam_search(
+                input_ids,
+                cur_len,
+                max_length,
+                do_sample,
+                temperature,
+                top_k,
+                top_p,
+                repetition_penalty,
+                pad_token_id,
+                eos_token_ids,
+                effective_batch_size,
+                num_return_sequences,
+                length_penalty,
+                num_beams,
+                vocab_size,
+            )
+        else:
+            output = self._generate_no_beam_search(
+                input_ids,
+                cur_len,
+                max_length,
+                do_sample,
+                temperature,
+                top_k,
+                top_p,
+                repetition_penalty,
+                pad_token_id,
+                eos_token_ids,
+                effective_batch_size,
+                user_ids,
+            )
+
+        return output
 
     def _generate_no_beam_search(
         self,
@@ -110,6 +217,7 @@ class GPT2(GPT2LMHeadModel):
         pad_token_id,
         eos_token_ids,
         batch_size,
+        user_ids,
     ):
         """ Generate sequences for each example without beam search (num_beams == 1).
             All returned sequence are generated independantly.
@@ -120,18 +228,24 @@ class GPT2(GPT2LMHeadModel):
 
         past = None
         while cur_len < max_length:
-            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past)
-
-            outputs = self(**model_inputs)
+            model_inputs = self.gpt2.prepare_inputs_for_generation(input_ids, past=past)
+            outputs = self.gpt2(**model_inputs)
+            print(outputs.shape)
+            if self.config.users:
+                print(outputs.size(1))
+                _id = user_ids[:,:outputs.size(1)].clone()
+                print(_id.shape)
+                print(outputs.shape)
+                outputs += self.user_linear(self.user_embed(_id))
             next_token_logits = outputs[:, -1, :]
 
             # if model has past, then set the past variable to speed up decoding
-            if self._do_output_past(outputs):
+            if self.gpt2._do_output_past(outputs):
                 past = outputs[1]
 
             # repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
             if repetition_penalty != 1.0:
-                self.enforce_repetition_penalty_(next_token_logits, batch_size, 1, input_ids, repetition_penalty)
+                self.gpt2.enforce_repetition_penalty_(next_token_logits, batch_size, 1, input_ids, repetition_penalty)
 
             if do_sample:
                 # Temperature (higher temperature => more likely to sample low probability tokens)
@@ -181,6 +295,27 @@ class GPT2(GPT2LMHeadModel):
             decoded[hypo_idx, : sent_lengths[hypo_idx]] = hypo[: sent_lengths[hypo_idx]]
 
         return decoded
+
+
+
+class GPT2(GPT2LMHeadModel):
+    def __init__(self, config):
+        super(GPT2, self).__init__(config)
+        self.transformer = GPT2Model(config)
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.init_weights()
+        # tie weight
+        self.lm_head.weight = self.transformer.wte.weight
+
+    def forward(self, input_ids,position_ids=None, token_type_ids=None, lm_labels=None, past=None):
+        hidden_states, presents = self.transformer(
+            input_ids, 
+            past=past,
+            position_ids=position_ids, 
+            token_type_ids=token_type_ids)
+        lm_logits = self.lm_head(hidden_states)
+        return lm_logits
+
 
 def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf"), min_tokens_to_keep=1):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering

@@ -21,7 +21,7 @@ def main():
     convs_ground_truth = list()
     num_answers = 1
 
-    if dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s":
+    if dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s" or dataset=="bigbangtheory":
         if model_name == "DialoGPT":
             vocab = GPT2Tokenizer.from_pretrained('gpt2')
         else:
@@ -92,9 +92,8 @@ def main():
             dist1_list += top_answer.split()
 
             try: 
-                if dataset == "cornell2" or dataset == "ubuntu" or dataset =="twitter_s":
-                    ground_truth_utter_ids = vocab.encode(ground_truth_utter)
-                    top_answer_utter_ids = vocab.encode(top_answer)
+                ground_truth_utter_ids = vocab.encode(ground_truth_utter)
+                top_answer_utter_ids = vocab.encode(top_answer)
                 embedding_list.append(embedding_compute(ground_truth_utter_ids, top_answer_utter_ids, embedding))
             except ValueError:
                 embedding_list.append(0)             
@@ -142,12 +141,12 @@ if __name__ == "__main__":
     try:
         target_file_path = sys.argv[1]
         dataset = sys.argv[2]
-        if dataset == "cornell2" or dataset == "ubuntu" or dataset =="twitter_s":
+        if dataset == "cornell":
+            id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
+            pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]        
+        else:
             checkpoint_path = sys.argv[3]
             model_name = checkpoint_path.split('/')[-3]
-        else:
-            id2word_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/id2word.pkl" #sys.argv[2]
-            pretrained_wv_path = "/data/private/uilab/KAIST-AI-Conversation-Model-2019-Fall-HHI/datasets/cornell/fasttext_wv.pkl" # sys.argv[3]
     except (KeyError, IndexError):
         print("Usage: python eval.py target_file_path")
 

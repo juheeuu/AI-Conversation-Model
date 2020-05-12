@@ -102,7 +102,7 @@ def get_config(parse=True, **optional_kwargs):
                         help='if false, use beam search for decoding')
     parser.add_argument('--temperature', type=float, default=1.0)
     parser.add_argument('--beam_size', type=int, default=2)
-    parser.add_argument('--max_seq_len', type=int, default=512)
+    parser.add_argument('--max_seq_len', type=int, default=1024)
 
     parser.add_argument('--model', type=str, default='HRED')
     parser.add_argument('--rnn', type=str, default='gru')
@@ -124,7 +124,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--users', type=str2bool, default=False)
     parser.add_argument('--n_heads', type=int, default=8)
     parser.add_argument('--d_model', type=int, default=512)
-    parser.add_argument('--user_size', type=int, default=9036)
+    parser.add_argument('--user_size', type=int, default=603)
 
     parser.add_argument('--z_utter_size', type=int, default=100)
     parser.add_argument('--z_conv_size', type=int, default=100)
@@ -136,7 +136,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--sentence_drop', type=float, default=0.25)
     parser.add_argument('--patience', type=int, default=5)
 
-    parser.add_argument('--n_context', type=int, default=1)
+    parser.add_argument('--n_context', type=int, default=0)
     parser.add_argument('--n_sample_step', type=int, default=1)
 
     parser.add_argument('--bow', type=str2bool, default=False)
@@ -146,7 +146,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--save_every_epoch', type=int, default=10)
 
     parser.add_argument('--data_name', type=str, default='tc_10_15')
-    parser.add_argument('--pretrained_wv', type=str2bool, default=True)
+    parser.add_argument('--pretrained_wv', type=str2bool, default=False)
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
     parser.add_argument('--lm_data_path', type=str, default='all.merge')
     parser.add_argument('--spm_model_path', type=str, default='spm.model')
