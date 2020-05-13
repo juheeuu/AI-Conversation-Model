@@ -20,9 +20,9 @@ class DialoGPT(nn.Module):
         self.gpt2 = GPT2(gpt2_config)
         self.gpt2.load_state_dict(torch.load(pretrained_path), strict=False)
 
-        if config.users:
-            self.user_embed = nn.Embedding(config.user_size, gpt2_config.n_embd)
-            self.user_linear = nn.Linear(gpt2_config.n_embd, gpt2_config.vocab_size)
+        # if config.users:
+        #     self.user_embed = nn.Embedding(config.user_size, gpt2_config.n_embd)
+        #     self.user_linear = nn.Linear(gpt2_config.n_embd, gpt2_config.vocab_size)
 
     def forward(self, 
             input_ids=None,
@@ -37,17 +37,14 @@ class DialoGPT(nn.Module):
             input_ids=input_ids,
             position_ids=position_ids,
             token_type_ids=token_type_ids,
-            lm_labels=input_ids,
+            labels=lm_labels,
             past=past
         ) # (batch_size, seq_len, vocab_size)
-
-        if self.config.users:
-            outputs += self.user_linear(self.user_embed(user_ids)) # (batch_size, seq_len, vocab_size)
 
         return outputs
 
     @torch.no_grad()
-    def generate(
+    def generate_2(
         self,
         input_ids=None,
         max_length=None,
@@ -204,7 +201,7 @@ class DialoGPT(nn.Module):
 
         return output
 
-    def _generate_no_beam_search(
+    def _generate_no_beam_search_2(
         self,
         input_ids,
         cur_len,
@@ -295,6 +292,7 @@ class DialoGPT(nn.Module):
             decoded[hypo_idx, : sent_lengths[hypo_idx]] = hypo[: sent_lengths[hypo_idx]]
 
         return decoded
+    
 
 
 
@@ -306,15 +304,40 @@ class GPT2(GPT2LMHeadModel):
         self.init_weights()
         # tie weight
         self.lm_head.weight = self.transformer.wte.weight
-
-    def forward(self, input_ids,position_ids=None, token_type_ids=None, lm_labels=None, past=None):
-        hidden_states, presents = self.transformer(
-            input_ids, 
+    
+    def forward(self,
+        input_ids=None,
+        past=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        labels=None,
+        use_cache=True):
+        
+        transformer_outputs = self.transformer(
+            input_ids,
             past=past,
-            position_ids=position_ids, 
-            token_type_ids=token_type_ids)
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache)
+        hidden_states = transformer_outputs[0]
         lm_logits = self.lm_head(hidden_states)
-        return lm_logits
+        outputs = lm_logits
+        outputs = (lm_logits,) + transformer_outputs[1:]
+        if labels is not None:
+            # Shift so that tokens < n predict n
+            shift_logits = lm_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            outputs = (loss,) + outputs
+        return outputs
 
 
 def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf"), min_tokens_to_keep=1):

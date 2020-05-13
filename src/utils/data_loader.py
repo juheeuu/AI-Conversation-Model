@@ -287,6 +287,6 @@ def get_loader(convs, vocab, convs_length=None, utterances_length=None, convs_us
     else:
         dataset = ConvUserDataset(convs, convs_users, convs_length, utterances_length, vocab)
 
-    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn)
+    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn, drop_last=True)
 
     return data_loader

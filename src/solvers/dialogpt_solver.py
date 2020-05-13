@@ -10,6 +10,7 @@ import codecs
 import sys
 from .solver import Solver
 import torch.nn.functional as F
+from models import DialoGPT
 
 class SolverDialoGPT(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
@@ -58,8 +59,6 @@ class SolverDialoGPT(Solver):
                     'input_ids': input_ids,
                     'position_ids': position_ids,
                     'token_type_ids': token_ids, 
-                    'lm_labels': label_ids,
-                    'user_ids': user_ids
                 }
 
                 outputs = self.model(**inputs)
@@ -126,8 +125,6 @@ class SolverDialoGPT(Solver):
                 'input_ids': input_ids,
                 'position_ids': position_ids,
                 'token_type_ids': token_ids, 
-                'lm_labels': label_ids,
-                'user_ids': user_ids
             }
 
             outputs = self.model(**inputs)
@@ -155,6 +152,10 @@ class SolverDialoGPT(Solver):
         generated_history = list()
         input_history = list()
 
+        reversed_config = self.config
+        reversed_config.pretrained_path = 'small_reverse.pkl'
+        self.reversed_model = DialoGPT(reversed_config).to(self.config.device)
+
         for batch_i, batch in enumerate(tqdm(self.eval_data_loader, ncols=80)):
            
             with torch.no_grad():
@@ -173,7 +174,7 @@ class SolverDialoGPT(Solver):
             if not self.config.users:
                 user_ids=None
 
-            output_sequences = self.model.generate(
+            output_sequences = self.model.gpt2.generate(
                 input_ids=input_ids,
                 max_length=self.config.max_seq_len,
                 temperature=0.9,
@@ -181,15 +182,31 @@ class SolverDialoGPT(Solver):
                 top_p=0.9,
                 repetition_penalty=1.0,
                 do_sample=True,
-                num_return_sequences=1,
-                eos_token_ids=self.config.vocab.eos_token_id,
-                user_ids=user_ids
+                num_return_sequences=2,
+                pad_token_id=self.vocab.pad_token,
             )
+
+            results = []
+            for seq in output_sequences:
+                # reverse_input_seq 
+                seq = seq.unsqueeze(0).to(self.config.device)
+                inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
+                mask = torch.full_like(seq, -100, dtype=torch.long).to(self.config.device)
+                labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
+                loss, *_ = self.reversed_model(inputs, lm_labels=labels)
+                results.append((seq, -loss.float()))
+
+            MMI_temperature = 0.5
+            scores = torch.stack([x[1] for x in results], dim=0)
+            winner = torch.multinomial(F.softmax(scores / MMI_temperature, dim=0), num_samples=1).item()
+
+            output_sequences = results[winner][0]
 
             output_sequences.squeeze_()
             output = output_sequences.tolist()
             output = self.vocab.decode(output, clean_up_tokenization_spaces=True)
             output = output.split(self.vocab.eos_token)
+            print(output)
             generated_history.append(output[1])
 
             input_ids.squeeze_()
@@ -214,3 +231,4 @@ class SolverDialoGPT(Solver):
                 print(ground_truth, file=output_f)
                 conv_idx += 1
         return conv_idx
+    
