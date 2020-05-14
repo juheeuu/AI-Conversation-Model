@@ -200,6 +200,12 @@ class DialoGPTDataset(Dataset):
         # token_type_ids = [0]  [1]   [1]   [1]   [1]  [2]   [2]    [2]     [2]
         # lm_labels      = [-1] [how] [are] [u?] [eos] [fine] [thank] [you] [eos]  
 
+        # user_input_ids = [user1] [hi] [user2] [eos] [how] [are] [u?]  [user3] [eos] [fine] [thank] [you]
+        # position_ids =   [0]     [1]  [2]     [3]   [4]   [5]   [6]   [7]     [8]   [9]    [10]    [11]
+        # token_type_ids = [0]     [0]  [0]     [1]   [1]   [1]   [1]   [1]     [2]   [2]    [2]     [2]
+        # lm_labels      = [-1]    [-1] [-1]    [how] [are] [u?]  [eos] [-1]    [fine][thank][you]   [eos]
+
+
         eos_id = self.vocab.encoder['<|endoftext|>']
 
         conv = self.convs[index]
@@ -214,7 +220,10 @@ class DialoGPTDataset(Dataset):
         for elem in conv:
             utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-2)) if isinstance(elem, list) \
                                                                                     or isinstance(elem, tuple) else self.vocab.encode(elem)
-            len_ += len(utter_id)
+            if self.config.users:
+                len_ += len(utter_id) + 1
+            else:
+                len_ += len(utter_id)
             if len_ > self.max_seq_len - len(conv) - 2:
                 if len(conv_ids) == 1:
                     utter_id = utter_id[:self.max_seq_len - len(conv) - 2 - len(conv_ids[0])]
@@ -226,22 +235,47 @@ class DialoGPTDataset(Dataset):
 
         if self.config.reversed:
             conv_ids = list(reversed(conv_ids))
+            conv = list(reversed(conv))
 
-        input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
+        if not self.config.users:
+            input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
+        else:
+            input_ids = []
+
         user_ids = []
-        for i, conv_id in enumerate(conv_ids): 
-            user_id = int(elem[0].replace('u', '').strip()) + 1 if isinstance(conv[i][0], str) else conv[i][0]
-            if i == 0: 
-                lm_labels += [-1] * len(conv_id)
-                token_type_ids += [0] * len(conv_id)
 
-                user_ids += [user_id] * len(conv_id)
-            else:
-                lm_labels += conv_id + [eos_id]
-                token_type_ids += [i] * (len(conv_id) + 1)
-                user_ids += [user_id] * (len(conv_id) + 1)
+        for i, conv_id in enumerate(conv_ids): 
+            if self.config.users:
+                if i == 0:
+                    user_id_1 = conv[i][0]
+                    user_id_2 = conv[i+1][0]
+                    self.vocab.add_tokens([user_id_1])
+                    self.vocab.add_tokens([user_id_2])
+
+                    input_ids += self.vocab.encode(user_id_1) + conv_id + self.vocab.encode(user_id_2) + [eos_id]
+                    lm_labels += [-1] * (len(conv_id) + 2)
+                    token_type_ids += [0] * (len(conv_id) + 2)
+                elif i == len(conv_ids) -1 :
+                    input_ids += conv_id
+                    lm_labels += conv_id + [eos_id]
+                    token_type_ids += [i] * (len(conv_id) + 1)
+                else: 
+                    user_id = conv[i+1][0]
+                    self.vocab.add_tokens([user_id])
+
+                    input_ids += conv_id + self.vocab.encode(user_id) + [eos_id]
+                    lm_labels += conv_id + [-1] +[eos_id]
+                    token_type_ids += [i] * (len(conv_id) + 2)
+            else: 
+                if i == 0: 
+                    lm_labels += [-1] * len(conv_id)
+                    token_type_ids += [0] * len(conv_id)
+                else:
+                    lm_labels += conv_id + [eos_id]
+                    token_type_ids += [i] * (len(conv_id) + 1)
         position_ids = list(range(len(input_ids)))
-        assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels) == len(user_ids))
+
+        assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels))
 
         return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels, user_ids)
 
