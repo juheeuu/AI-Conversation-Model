@@ -11,6 +11,7 @@ import sys
 from .solver import Solver
 import torch.nn.functional as F
 from models import DialoGPT
+import copy
 
 class SolverDialoGPT(Solver):
     def __init__(self, config, train_data_loader, eval_data_loader, vocab, is_train=True, model=None):
@@ -54,18 +55,34 @@ class SolverDialoGPT(Solver):
                 self.model.zero_grad()
 
                 batch = tuple(t.to(self.config.device) for t in batch)
-                input_ids, position_ids, token_ids, label_ids, user_ids = batch
+                input_ids, position_ids, token_ids, label_ids, user_ids, user_mask = batch
+
                 inputs = {
                     'input_ids': input_ids,
                     'position_ids': position_ids,
                     'token_type_ids': token_ids, 
+                    'user_mask': user_mask
                 }
 
                 outputs = self.model(**inputs)
 
                 loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
-                batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
+
+                if self.config.users and self.config.reversed:
+                    lm_logits, user_outputs = outputs
+                    user_ids = user_ids.view(-1)
+                    user_ids_mask = user_ids != -1 
+                    user_ids = user_ids[user_ids_mask]
+                    user_loss = loss_fn(user_outputs.view(-1, user_outputs.size(-1)),
+                        user_ids.view(-1))
+                    output_loss = loss_fn(lm_logits.view(-1, lm_logits.size(-1)),
                                 label_ids.view(-1))
+                    batch_loss = user_loss + output_loss
+                else:
+                    batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
+                                label_ids.view(-1))
+                    user_loss = None
+                    output_loss = None
                 
                 assert not isnan(batch_loss.item())
 
@@ -77,6 +94,9 @@ class SolverDialoGPT(Solver):
                 if batch_i % self.config.print_every == 0:
                     tqdm.write(f'Epoch: {epoch_i+1}, iter {batch_i}: loss = {batch_loss.item():.3f}')
                     self.writer.add_scalar('Train/loss', batch_loss.item(), cur_step)
+                    if self.config.users and self.config.reversed:
+                        self.writer.add_scalar('Train/user_loss', user_loss.item(), cur_step)
+                        self.writer.add_scalar('Train/lmloss', output_loss.item(), cur_step)
                     self.writer.add_scalar('Train/learning_rate', self.scheduler.get_lr()[0], cur_step)
 
                 batch_loss.backward()
@@ -84,6 +104,10 @@ class SolverDialoGPT(Solver):
                 self.optimizer.step()
                 self.scheduler.step()
                 cur_step += 1
+            
+            if epoch_i == 0:
+                if self.config.users and not self.config.reversed:
+                    self.vocab.save_pretrained(self.config.save_path)
 
             epoch_loss_history.append(epoch_loss)
             self.epoch_loss = epoch_loss
@@ -91,10 +115,14 @@ class SolverDialoGPT(Solver):
             print(f'Epoch {epoch_i+1} loss average: {epoch_loss:.3f}')
 
             print('\n<Validation>...')
-            self.validation_loss = self.evaluate()
+            val_loss, output_loss, user_loss = self.evaluate()
+            self.validation_loss  = val_loss
 
             if epoch_i % self.config.plot_every_epoch == 0:
                 self.writer.add_scalar('Val/loss', self.validation_loss, epoch_i + 1)
+                if output_loss != None and user_loss != None:
+                    self.writer.add_scalar('Val/lmloss', output_loss.item(), epoch_i + 1)
+                    self.writer.add_scalar('Val/user_loss', user_loss.item(), epoch_i + 1)
 
             if min_validation_loss > self.validation_loss:
                 min_validation_loss = self.validation_loss
@@ -120,18 +148,35 @@ class SolverDialoGPT(Solver):
             with torch.no_grad():
                 batch = tuple(t.to(self.config.device) for t in batch)
             
-            input_ids, position_ids, token_ids, label_ids, user_ids = batch
+            input_ids, position_ids, token_ids, label_ids, user_ids, user_mask = batch
             inputs = {
                 'input_ids': input_ids,
                 'position_ids': position_ids,
                 'token_type_ids': token_ids, 
+                'user_mask': user_mask,
             }
 
             outputs = self.model(**inputs)
-
+            
             loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
-            batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
-                                label_ids.view(-1))
+
+            if self.config.users and self.config.reversed:
+                lm_logits, user_outputs = outputs
+                user_ids = user_ids.view(-1)
+                user_ids_mask = user_ids != -1 
+                user_ids = user_ids[user_ids_mask]
+                user_loss = loss_fn(user_outputs.view(-1, user_outputs.size(-1)),
+                    user_ids.view(-1))
+                output_loss = loss_fn(lm_logits.view(-1, lm_logits.size(-1)),
+                            label_ids.view(-1))
+                batch_loss = user_loss + output_loss
+            else: 
+                batch_loss = loss_fn(outputs.view(-1, outputs.size(-1)),
+                                                    label_ids.view(-1))
+                output_loss = None
+                user_loss = None
+
+            
 
             if self.config.n_gpu > 1:
                 batch_loss = batch_loss.mean()
@@ -141,7 +186,7 @@ class SolverDialoGPT(Solver):
             assert not isnan(batch_loss.item())
         
         print(f'Validation loss: {epoch_loss:.3f}\n')
-        return epoch_loss
+        return epoch_loss, output_loss, user_loss
 
     
     def export_samples(self, beam_size, file_write=True):
@@ -152,27 +197,34 @@ class SolverDialoGPT(Solver):
         generated_history = list()
         input_history = list()
 
-        reversed_config = self.config
-        reversed_config.pretrained_path = 'small_reverse.pkl'
-        self.reversed_model = DialoGPT(reversed_config).to(self.config.device)
+        if self.config.mmi:
+            reversed_config = copy.deepcopy(self.config)
+            reversed_config.pretrained_path = 'reversed_dialogpt_cornell2_user.pkl'
+            reversed_config.reversed = True
+            reversed_config.original = False
+            self.reversed_model = DialoGPT(reversed_config).to(self.config.device)
 
         for batch_i, batch in enumerate(tqdm(self.eval_data_loader, ncols=80)):
            
             with torch.no_grad():
                 batch = tuple(t.to(self.config.device) for t in batch)
             
-            input_ids, position_ids, token_ids, label_ids, user_ids = batch
+            input_ids, position_ids, token_ids, label_ids, user_ids, \
+                user_masks = batch
 
             gt_mask = label_ids != -1 
             gt_ids = input_ids[gt_mask][1:]
 
             input_mask = label_ids == -1 
+                
             input_mask = torch.cat((torch.BoolTensor([[True]]).to(self.config.device), input_mask),dim=1)[...,:-1]
             input_ids = input_ids[input_mask]
             input_ids = input_ids.unsqueeze(0)
 
-            if not self.config.users:
-                user_ids=None
+            if self.config.mmi:
+                num_return_sequences = 3
+            else:
+                num_return_sequences = 1
 
             output_sequences = self.model.gpt2.generate(
                 input_ids=input_ids,
@@ -182,31 +234,65 @@ class SolverDialoGPT(Solver):
                 top_p=0.9,
                 repetition_penalty=1.0,
                 do_sample=True,
-                num_return_sequences=2,
+                num_return_sequences=num_return_sequences,
                 pad_token_id=self.vocab.pad_token,
             )
 
-            results = []
-            for seq in output_sequences:
-                # reverse_input_seq 
-                seq = seq.unsqueeze(0).to(self.config.device)
-                inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
-                mask = torch.full_like(seq, -100, dtype=torch.long).to(self.config.device)
-                labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
-                loss, *_ = self.reversed_model(inputs, lm_labels=labels)
-                results.append((seq, -loss.float()))
+            loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
 
-            MMI_temperature = 0.5
-            scores = torch.stack([x[1] for x in results], dim=0)
-            winner = torch.multinomial(F.softmax(scores / MMI_temperature, dim=0), num_samples=1).item()
+            if self.config.mmi:
+                results = []
+                if self.config.users:
+                    user_mask = input_ids > 50256
+                    user_ids = input_ids[user_mask]
+                    user_ids = user_ids[1]
 
-            output_sequences = results[winner][0]
+                    user_id = user_ids.tolist()
+                    user_ids_str = self.vocab.decode([user_id])
+                    user_ids = torch.LongTensor([int(user_ids_str[1:])]).to(self.config.device)
+
+                    user_ids.unsqueeze(0)
+
+                    input_ids_mask = input_ids <= 50256
+                    input_ids = input_ids[input_ids_mask]
+
+                for seq in output_sequences:
+                    # reverse_input_seq 
+                    if self.config.users:
+                        seq = seq.unsqueeze(0).to(self.config.device)
+                        seq_mask = seq <= 50256
+                        seq = seq[seq_mask]
+
+                        inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
+                        mask = torch.full_like(seq, -1, dtype=torch.long).to(self.config.device)
+                        labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
+                        user_mask = torch.LongTensor([[0] * (len(seq)-1) + [1] + [0] * len(input_ids)])
+
+                        loss, user_output = self.reversed_model(inputs, lm_labels=labels, user_ids=user_ids,user_mask=user_mask)
+                        user_loss = loss_fn(user_output.view(-1, user_output.size(-1)), user_ids.view(-1))
+                        loss = loss + user_loss
+                        results.append((seq, -loss.float()))
+
+                    else:
+                        seq = seq.unsqueeze(0).to(self.config.device)
+                        inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
+                        mask = torch.full_like(seq, -1, dtype=torch.long).to(self.config.device)
+                        labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
+                        # user_mask = torch.LongTensor([[-1] * (len(seq)-1) + [0] + [-1] * len(input_ids)])
+                        # user_ids = 
+                        loss, *_ = self.reversed_model(inputs, lm_labels=labels)
+                        results.append((seq, -loss.float()))
+                
+                MMI_temperature = 0.5
+                scores = torch.stack([x[1] for x in results], dim=0)
+                winner = torch.multinomial(F.softmax(scores / MMI_temperature, dim=0), num_samples=1).item()
+
+                output_sequences = results[winner][0]
 
             output_sequences.squeeze_()
             output = output_sequences.tolist()
             output = self.vocab.decode(output, clean_up_tokenization_spaces=True)
             output = output.split(self.vocab.eos_token)
-            print(output)
             generated_history.append(output[1])
 
             input_ids.squeeze_()

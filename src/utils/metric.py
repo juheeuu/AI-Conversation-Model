@@ -1,6 +1,8 @@
 import numpy as np
+import nltk
 from nltk.translate.bleu_score import sentence_bleu
 from nltk.translate.bleu_score import SmoothingFunction
+from nltk.translate.meteor_score import meteor_score
 from rouge import Rouge
 import torch 
 import torch.nn.functional as F
@@ -30,6 +32,9 @@ def embedding_compute(ground_truth_ids, answer_sample_ids, embedding):
     if math.isnan(cosine):
         raise ValueError
     return cosine
+
+def meteor_compute(ground_truth_utter, answer_sample):
+    return meteor_score(ground_truth_utter, answer_sample)
 
 def dist_compute(all_response, dist_n=1):
     if not all_response:

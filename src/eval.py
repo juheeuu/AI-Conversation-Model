@@ -1,7 +1,7 @@
 import codecs
 import numpy as np
 import sys
-from utils import bleu_compute, rouge_compute, rouge_names, to_var, embedding_compute, dist_compute
+from utils import bleu_compute, rouge_compute, rouge_names, to_var, embedding_compute, dist_compute, meteor_compute
 from utils import PAD_TOKEN, UNK_TOKEN, EOS_TOKEN, SOS_TOKEN, UNK_TOKEN, SEP_TOKEN
 from scipy.stats import sem
 import tabulate
@@ -16,6 +16,7 @@ def main():
     rouge_history = list()
     embedding_list = list()
     dist1_list = list()
+    meteor_list = list()
     conv_idx_match = 0
     convs_top_answer = list()
     convs_ground_truth = list()
@@ -63,22 +64,27 @@ def main():
 
     with codecs.open(target_file_path, "r", "utf-8") as csv_f:
         for line in csv_f:
-            conv_idx = int(line.strip().split()[-1])
+            try:
+                conv_idx = int(line.strip().split()[-1])
+            except:
+                print(line)
             if conv_idx_match != conv_idx:
                 print("What?!")
                 return
             conv_idx_match += 1
             context_utter = csv_f.readline().strip()
+            # print(context_utter)
 
             answers = list()
-            for _ in range(num_answers):
-                answers.append(csv_f.readline().strip())
+            # for _ in range(num_answers):
+            answers.append(csv_f.readline().strip())
+            # print(answers)
             
             if '<eos>' in answers[-1]:
                 top_answer = answers[-1].split('<eos>')[0].strip()
             else: 
                 top_answer = answers[-1].strip()
-
+            
             ground_truth_utter = csv_f.readline().strip()
 
             if '<eos>' in ground_truth_utter:
@@ -107,29 +113,38 @@ def main():
                 rouge_history.append(rouge_compute(ground_truth_utter, top_answer))
             except ValueError:
                 rouge_history.append(np.zeros(3))
+            
+            meteor_list.append(meteor_compute(ground_truth_utter, top_answer))
 
     length_mat = np.array(length_history)
     bleu_mat = np.array(bleu_list)
     rouge_mat = np.stack(rouge_history, axis=0)
     embedding_mat = np.array(embedding_list)
+    meteor_mat = np.array(meteor_list)
 
     avg_length = np.mean(length_mat)
     avg_bleu = np.mean(bleu_mat)
     avg_rouge = np.mean(rouge_mat, axis=0)
     avg_embedding = np.mean(embedding_mat)
+    avg_meteor = np.mean(meteor_mat)
 
     stderr_bleu = sem(bleu_mat, axis=0)
     stderr_length = sem(length_mat)
     stderr_rouge = sem(rouge_mat, axis=0)
     stderr_embedding = sem(embedding_mat, axis=0)
+    stderr_meteor = sem(meteor_mat, axis=0)
 
     dist1 = dist_compute(dist1_list)
+    dist2 = dist_compute(dist1_list, 2)
 
     output_str_list = list()
     output_str_list.append(["Length", avg_length, stderr_length])
     output_str_list.append(["BLEU", avg_bleu, stderr_bleu])
     output_str_list.append(["Embedding", avg_embedding, stderr_embedding])
+    output_str_list.append(["METEOR", avg_meteor, stderr_meteor])
     output_str_list.append(["Dist1", dist1, '-' ])
+    output_str_list.append(["Dist2", dist2, '-' ])
+
     for one_name, one_avg, one_stderr in zip(rouge_names(), avg_rouge, stderr_rouge):
         output_str_list.append([one_name, one_avg, one_stderr])
 

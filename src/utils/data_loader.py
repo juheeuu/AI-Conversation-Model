@@ -175,12 +175,13 @@ class TransformerBasedConvDataset(Dataset):
         return text 
 
 class DialoGPTFeature(object):
-    def __init__(self, input_ids, position_ids, token_type_ids, lm_labels, user_ids):
+    def __init__(self, input_ids, position_ids, token_type_ids, lm_labels, user_ids, user_mask):
         self.input_ids = input_ids
         self.position_ids = position_ids
         self.token_type_ids = token_type_ids
         self.lm_labels = lm_labels
         self.user_ids = user_ids 
+        self.user_mask = user_mask
 
 class DialoGPTDataset(Dataset):
     def __init__(self, convs, vocab, config):
@@ -204,7 +205,6 @@ class DialoGPTDataset(Dataset):
         # position_ids =   [0]     [1]  [2]     [3]   [4]   [5]   [6]   [7]     [8]   [9]    [10]    [11]
         # token_type_ids = [0]     [0]  [0]     [1]   [1]   [1]   [1]   [1]     [2]   [2]    [2]     [2]
         # lm_labels      = [-1]    [-1] [-1]    [how] [are] [u?]  [eos] [-1]    [fine][thank][you]   [eos]
-
 
         eos_id = self.vocab.encoder['<|endoftext|>']
 
@@ -237,24 +237,24 @@ class DialoGPTDataset(Dataset):
             conv_ids = list(reversed(conv_ids))
             conv = list(reversed(conv))
 
-        if not self.config.users:
-            input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
-        else:
+        input_ids = [i for s in conv_ids for i in s+[eos_id]][:-1]
+
+        if ((self.config.users) and (not self.config.reversed)):
             input_ids = []
 
         user_ids = []
-
+        user_mask = []
         for i, conv_id in enumerate(conv_ids): 
-            if self.config.users:
+            if self.config.users and not self.config.reversed:
                 if i == 0:
                     user_id_1 = conv[i][0]
                     user_id_2 = conv[i+1][0]
                     self.vocab.add_tokens([user_id_1])
                     self.vocab.add_tokens([user_id_2])
-
                     input_ids += self.vocab.encode(user_id_1) + conv_id + self.vocab.encode(user_id_2) + [eos_id]
                     lm_labels += [-1] * (len(conv_id) + 2)
                     token_type_ids += [0] * (len(conv_id) + 2)
+
                 elif i == len(conv_ids) -1 :
                     input_ids += conv_id
                     lm_labels += conv_id + [eos_id]
@@ -264,20 +264,27 @@ class DialoGPTDataset(Dataset):
                     self.vocab.add_tokens([user_id])
 
                     input_ids += conv_id + self.vocab.encode(user_id) + [eos_id]
-                    lm_labels += conv_id + [-1] +[eos_id]
+                    if self.config.export_test:
+                        lm_labels += conv_id + [0] +[eos_id]
+                    else:
+                        lm_labels += conv_id + [-1] +[eos_id]
                     token_type_ids += [i] * (len(conv_id) + 2)
             else: 
+                user_ids.append(int(conv[i][0][1:]) if isinstance(conv[i][0], str) else conv[i][0]) 
                 if i == 0: 
                     lm_labels += [-1] * len(conv_id)
+                    user_mask += [0] * len(conv_id)
                     token_type_ids += [0] * len(conv_id)
                 else:
                     lm_labels += conv_id + [eos_id]
+                    user_mask += [1] + [0] * len(conv_id)
                     token_type_ids += [i] * (len(conv_id) + 1)
+        if self.config.users and self.config.reversed:
+            user_ids.pop()
+            assert len(user_ids) == user_mask.count(1)
         position_ids = list(range(len(input_ids)))
-
         assert (len(input_ids) == len(position_ids) == len(token_type_ids) == len(lm_labels))
-
-        return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels, user_ids)
+        return DialoGPTFeature(input_ids, position_ids, token_type_ids, lm_labels, user_ids, user_mask)
 
     @staticmethod
     def collate(features):
@@ -297,8 +304,11 @@ class DialoGPTDataset(Dataset):
                               batch_first=True, padding_value=-1)
         user_ids = pad_sequence([torch.tensor(f.user_ids, dtype=torch.long)
                                 for f in features],
+                                batch_first=True, padding_value=-1)
+        user_mask = pad_sequence([torch.tensor(f.user_mask, dtype=torch.long)
+                                for f in features],
                                 batch_first=True, padding_value=0)
-        return (input_ids, position_ids, token_type_ids, labels, user_ids)
+        return (input_ids, position_ids, token_type_ids, labels, user_ids, user_mask)
 
 
 

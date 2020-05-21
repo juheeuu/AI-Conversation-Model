@@ -10,3 +10,7 @@ python export_test_responses.py --data="$2" --model="$3" --batch_size="$4" --pre
 
 wait
 
+
+#20200513_114436
+
+# python export_test_responses.py --data=cornell2 --model=dialogpt --batch_size=1 --pretrained_wv=False --users=False  --checkpoint="$5" --user_size=603 --beam_size="$6" --n_context=0

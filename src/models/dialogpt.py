@@ -16,11 +16,16 @@ class DialoGPT(nn.Module):
         self.gpt2_config = gpt2_config
         project_dir = config.dataset_dir.parent.parent
         pretrained_path = os.path.join(project_dir, 'src', 'models', 'pretrained', config.pretrained_path)
+        gpt2_config.original = config.original
 
         self.gpt2 = GPT2(gpt2_config)
         self.gpt2.load_state_dict(torch.load(pretrained_path), strict=False)
 
-        # if config.users:
+        if config.users and not config.reversed:
+            self.gpt2.resize_token_embeddings(config.user_size + gpt2_config.vocab_size)
+        elif config.users and config.reversed:
+            self.user_layer = nn.Linear(gpt2_config.n_embd, config.user_size)
+
         #     self.user_embed = nn.Embedding(config.user_size, gpt2_config.n_embd)
         #     self.user_linear = nn.Linear(gpt2_config.n_embd, gpt2_config.vocab_size)
 
@@ -31,6 +36,7 @@ class DialoGPT(nn.Module):
             lm_labels=None,
             past=None,
             user_ids = None, 
+            user_mask = None,
         ):
         
         outputs = self.gpt2(
@@ -38,8 +44,19 @@ class DialoGPT(nn.Module):
             position_ids=position_ids,
             token_type_ids=token_type_ids,
             labels=lm_labels,
-            past=past
+            past=past,
+            logits_only=not(self.config.users and self.config.reversed) 
         ) # (batch_size, seq_len, vocab_size)
+
+        # outputs[0] 에는 logit 들 
+        # outputs[1] 에는 transformer output들 .. 뀨 
+
+        if self.config.users and self.config.reversed:
+            hidden_state = outputs[1]
+            user_mask = user_mask.view(-1) == 1
+            user_state = hidden_state.view(-1, hidden_state.size(-1))[user_mask]
+            user_outputs = self.user_layer(user_state)
+            return outputs[0], user_outputs    
 
         return outputs
 
@@ -299,6 +316,7 @@ class DialoGPT(nn.Module):
 class GPT2(GPT2LMHeadModel):
     def __init__(self, config):
         super(GPT2, self).__init__(config)
+        self.config = config
         self.transformer = GPT2Model(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.init_weights()
@@ -314,7 +332,8 @@ class GPT2(GPT2LMHeadModel):
         head_mask=None,
         inputs_embeds=None,
         labels=None,
-        use_cache=True):
+        use_cache=True,
+        logits_only=False):
         
         transformer_outputs = self.transformer(
             input_ids,
@@ -328,15 +347,22 @@ class GPT2(GPT2LMHeadModel):
         hidden_states = transformer_outputs[0]
         lm_logits = self.lm_head(hidden_states)
         outputs = lm_logits
-        outputs = (lm_logits,) + transformer_outputs[1:]
-        if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = lm_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            outputs = (loss,) + outputs
+        if not logits_only:
+            if self.config.original:
+                outputs = (lm_logits,) + transformer_outputs[1:]
+            else:
+                outputs = (lm_logits, hidden_states)
+            if labels is not None:
+                # Shift so that tokens < n predict n
+                shift_logits = lm_logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                # Flatten the tokens
+                loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                if self.config.original:
+                    outputs = (loss,) + outputs
+                else:
+                    outputs = (loss, hidden_states)
         return outputs
 
 

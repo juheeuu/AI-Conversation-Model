@@ -7,7 +7,6 @@ from transformers import OpenAIGPTTokenizer, GPT2Tokenizer
 def main():
     config = get_config(mode='test')
 
-
     if config.data_name == "cornell":
         vocab = Vocab()
         vocab.load(config.word2id_path, config.id2word_path, ptb=(config.model == "PTB"))
@@ -28,9 +27,13 @@ def main():
                                 is_ptb_model=(config.model=="PTB"))
     
     elif config.model == "DialoGPT":
-        vocab = GPT2Tokenizer.from_pretrained('gpt2')
+        if config.users:
+            vocab = GPT2Tokenizer.from_pretrained(config.user_vocab_path)
+        else:
+            vocab = GPT2Tokenizer.from_pretrained('gpt2')
         config.vocab_size = len(vocab)
         config.vocab = vocab
+        config.export_test = True
         data_loader = get_loader(convs=load_pickle(config.convs_path),
                                     vocab=vocab, 
                                     batch_size=config.batch_size,

@@ -121,15 +121,14 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--feedforward', type=str, default='FeedForward')
     parser.add_argument('--feedforward_hidden_size', type=int, default=2048)
     parser.add_argument('--activation', type=str, default='Tanh')
-    parser.add_argument('--users', type=str2bool, default=False)
+    parser.add_argument('--users', type=str2bool, default=True)
     parser.add_argument('--n_heads', type=int, default=8)
     parser.add_argument('--d_model', type=int, default=512)
     parser.add_argument('--user_size', type=int, default=603)
 
     parser.add_argument('--z_utter_size', type=int, default=100)
     parser.add_argument('--z_conv_size', type=int, default=100)
-    parser.add_argument('--word_drop', type=float, default=0.0,
-                        help='only applied to variational models')
+    parser.add_argument('--word_drop', type=float, default=0.0, help='only applied to variational models')
     parser.add_argument('--kl_threshold', type=float, default=0.0)
     parser.add_argument('--kl_annealing_iter', type=int, default=5000)
     parser.add_argument('--importance_sample', type=int, default=100)
@@ -150,6 +149,10 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--pretrained_uv', type=str2bool, default=False)
     parser.add_argument('--pretrained_path', type=str, default='medium_ft.pkl')
     parser.add_argument('--reversed', type=bool, default=False)
+    parser.add_argument('--mmi', type=bool, default=False)
+    parser.add_argument('--original', type=bool, default=True)
+    parser.add_argument('--export_test', type=bool, default=False)
+    parser.add_argument('--user_vocab_path', type=str, default='')
 
     if parse:
         kwargs = parser.parse_args()
