@@ -153,6 +153,7 @@ def get_config(parse=True, **optional_kwargs):
     parser.add_argument('--original', type=bool, default=True)
     parser.add_argument('--export_test', type=bool, default=False)
     parser.add_argument('--user_vocab_path', type=str, default='')
+    parser.add_argument('--reversed_pretrained_path', type=str, default='')
 
     if parse:
         kwargs = parser.parse_args()

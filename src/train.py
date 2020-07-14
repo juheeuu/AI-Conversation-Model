@@ -48,7 +48,7 @@ if __name__ == '__main__':
                                     batch_size=val_config.eval_batch_size,
                                     is_ptb_model=(val_config.model=="ZHENG") or (val_config.model=="Transformer"))
     
-    elif (config.data_name == "cornell2" or config.data_name == "bigbangtheory") and config.model == "DialoGPT":
+    elif config.model == "DialoGPT":
         vocab = GPT2Tokenizer.from_pretrained('gpt2')
         config.vocab_size = len(vocab)
         config.vocab = vocab

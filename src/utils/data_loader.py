@@ -123,7 +123,7 @@ class TransformerBasedConvDataset(Dataset):
         input_users = []
 
         for i, elem in enumerate(conv):
-            if isinstance(elem, list):
+            if isinstance(elem, list) or isinstance(elem, tuple):
                 user_num = int(elem[0].replace('u', '').strip()) + 1 if isinstance(elem[0], str) else elem[0] + 1
                 utter = elem[1]
             else:
@@ -217,8 +217,9 @@ class DialoGPTDataset(Dataset):
         # processed for max sequence length
         len_ = 0
         conv_ids = []
+        assert len(conv) >= 2
         for elem in conv:
-            utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-2)) if isinstance(elem, list) \
+            utter_id = self.vocab.encode(elem[1], max_length=(self.max_seq_len-10-len(conv))) if isinstance(elem, list) \
                                                                                     or isinstance(elem, tuple) else self.vocab.encode(elem)
             if self.config.users:
                 len_ += len(utter_id) + 1
@@ -267,16 +268,23 @@ class DialoGPTDataset(Dataset):
                     if self.config.export_test:
                         lm_labels += conv_id + [0] +[eos_id]
                     else:
-                        lm_labels += conv_id + [-1] +[eos_id]
+                        lm_labels += conv_id + [eos_id] + [-1]
                     token_type_ids += [i] * (len(conv_id) + 2)
             else: 
+                # baseline, reversed, reversed + User
                 user_ids.append(int(conv[i][0][1:]) if isinstance(conv[i][0], str) else conv[i][0]) 
                 if i == 0: 
                     lm_labels += [-1] * len(conv_id)
                     user_mask += [0] * len(conv_id)
                     token_type_ids += [0] * len(conv_id)
                 else:
-                    lm_labels += conv_id + [eos_id]
+                    if self.config.export_test: 
+                        if i == len(conv_ids) - 1:
+                            lm_labels += conv_id + [eos_id]
+                        elif i < self.config.n_context:
+                            lm_labels += [-1] * (len(conv_id) + 1)
+                        else: 
+                            lm_labels += conv_id + [eos_id]
                     user_mask += [1] + [0] * len(conv_id)
                     token_type_ids += [i] * (len(conv_id) + 1)
         if self.config.users and self.config.reversed:

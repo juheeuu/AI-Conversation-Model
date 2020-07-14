@@ -16,7 +16,14 @@ class DialoGPT(nn.Module):
         self.gpt2_config = gpt2_config
         project_dir = config.dataset_dir.parent.parent
         pretrained_path = os.path.join(project_dir, 'src', 'models', 'pretrained', config.pretrained_path)
-        gpt2_config.original = config.original
+        
+        if config.mode == "train":
+            gpt2_config.original = False
+        else:
+            if config.reversed:
+                gpt2_config.original = False
+            else:
+                gpt2_config.original = True
 
         self.gpt2 = GPT2(gpt2_config)
         self.gpt2.load_state_dict(torch.load(pretrained_path), strict=False)
@@ -25,9 +32,6 @@ class DialoGPT(nn.Module):
             self.gpt2.resize_token_embeddings(config.user_size + gpt2_config.vocab_size)
         elif config.users and config.reversed:
             self.user_layer = nn.Linear(gpt2_config.n_embd, config.user_size)
-
-        #     self.user_embed = nn.Embedding(config.user_size, gpt2_config.n_embd)
-        #     self.user_linear = nn.Linear(gpt2_config.n_embd, gpt2_config.vocab_size)
 
     def forward(self, 
             input_ids=None,
@@ -38,6 +42,11 @@ class DialoGPT(nn.Module):
             user_ids = None, 
             user_mask = None,
         ):
+
+        if self.config.mode == "train":
+            logits_only = not(self.config.users and self.config.reversed)
+        else:
+            logits_only = not self.config.reversed
         
         outputs = self.gpt2(
             input_ids=input_ids,
@@ -45,8 +54,10 @@ class DialoGPT(nn.Module):
             token_type_ids=token_type_ids,
             labels=lm_labels,
             past=past,
-            logits_only=not(self.config.users and self.config.reversed) 
+            logits_only=logits_only
         ) # (batch_size, seq_len, vocab_size)
+
+        # not config.users or not_config reversed 
 
         # outputs[0] 에는 logit 들 
         # outputs[1] 에는 transformer output들 .. 뀨 

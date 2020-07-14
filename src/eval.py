@@ -22,7 +22,7 @@ def main():
     convs_ground_truth = list()
     num_answers = 1
 
-    if dataset == "cornell2" or dataset == "ubuntu" or dataset == "twitter_s" or dataset=="bigbangtheory":
+    if dataset != "cornell":
         if model_name == "DialoGPT":
             vocab = GPT2Tokenizer.from_pretrained('gpt2')
         else:
@@ -68,6 +68,7 @@ def main():
                 conv_idx = int(line.strip().split()[-1])
             except:
                 print(line)
+                print(conv_idx)
             if conv_idx_match != conv_idx:
                 print("What?!")
                 return
@@ -86,6 +87,9 @@ def main():
                 top_answer = answers[-1].strip()
             
             ground_truth_utter = csv_f.readline().strip()
+
+            if ground_truth_utter.split()[-1].startswith('u'):
+                ground_truth_utter = ' '.join(ground_truth_utter.split()[:-1])
 
             if '<eos>' in ground_truth_utter:
                 ground_truth_utter = ground_truth_utter.split('<eos>')[0]

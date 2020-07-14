@@ -50,11 +50,11 @@ class SolverDialoGPT(Solver):
             epoch_loss = 0.0
 
             for batch_i, batch in enumerate(tqdm(self.train_data_loader, ncols=80)):
-
                 self.optimizer.zero_grad()
                 self.model.zero_grad()
 
                 batch = tuple(t.to(self.config.device) for t in batch)
+
                 input_ids, position_ids, token_ids, label_ids, user_ids, user_mask = batch
 
                 inputs = {
@@ -199,10 +199,10 @@ class SolverDialoGPT(Solver):
 
         if self.config.mmi:
             reversed_config = copy.deepcopy(self.config)
-            reversed_config.pretrained_path = 'reversed_dialogpt_cornell2_user.pkl'
+            reversed_config.pretrained_path = self.config.reversed_pretrained_path
             reversed_config.reversed = True
             reversed_config.original = False
-            self.reversed_model = DialoGPT(reversed_config).to(self.config.device)
+            self.reversed_model = DialoGPT(reversed_config).cuda(1)
 
         for batch_i, batch in enumerate(tqdm(self.eval_data_loader, ncols=80)):
            
@@ -228,7 +228,7 @@ class SolverDialoGPT(Solver):
 
             output_sequences = self.model.gpt2.generate(
                 input_ids=input_ids,
-                max_length=self.config.max_seq_len,
+                max_length=self.config.max_seq_len-20,
                 temperature=0.9,
                 top_k=0,
                 top_p=0.9,
@@ -249,7 +249,7 @@ class SolverDialoGPT(Solver):
 
                     user_id = user_ids.tolist()
                     user_ids_str = self.vocab.decode([user_id])
-                    user_ids = torch.LongTensor([int(user_ids_str[1:])]).to(self.config.device)
+                    user_ids = torch.LongTensor([int(user_ids_str[1:])]).cuda(1)
 
                     user_ids.unsqueeze(0)
 
@@ -259,54 +259,78 @@ class SolverDialoGPT(Solver):
                 for seq in output_sequences:
                     # reverse_input_seq 
                     if self.config.users:
-                        seq = seq.unsqueeze(0).to(self.config.device)
+                        seq = seq.unsqueeze(0).cuda(1)
+                        original_seq = seq.unsqueeze(0).cuda(1)
                         seq_mask = seq <= 50256
                         seq = seq[seq_mask]
+                        seq = seq[:self.config.max_seq_len-200]
+                        input_ids = input_ids[:self.config.max_seq_len-200]
 
-                        inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
-                        mask = torch.full_like(seq, -1, dtype=torch.long).to(self.config.device)
-                        labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
+                        inputs = torch.cat((seq, input_ids), dim=-1).cuda(1)
+                        mask = torch.full_like(seq, -1, dtype=torch.long).cuda(1)
+                        labels = torch.cat((mask, input_ids), dim=-1).cuda(1)
                         user_mask = torch.LongTensor([[0] * (len(seq)-1) + [1] + [0] * len(input_ids)])
+
+                        inputs = inputs
+                        labels = torch.cat((mask, input_ids), dim=-1).cuda(1)
 
                         loss, user_output = self.reversed_model(inputs, lm_labels=labels, user_ids=user_ids,user_mask=user_mask)
                         user_loss = loss_fn(user_output.view(-1, user_output.size(-1)), user_ids.view(-1))
                         loss = loss + user_loss
-                        results.append((seq, -loss.float()))
-
+                        results.append((original_seq, -loss.float()))
                     else:
-                        seq = seq.unsqueeze(0).to(self.config.device)
-                        inputs = torch.cat((seq, input_ids), dim=-1).to(self.config.device)
-                        mask = torch.full_like(seq, -1, dtype=torch.long).to(self.config.device)
-                        labels = torch.cat((mask, input_ids), dim=-1).to(self.config.device)
-                        # user_mask = torch.LongTensor([[-1] * (len(seq)-1) + [0] + [-1] * len(input_ids)])
-                        # user_ids = 
+                        original_seq=seq.unsqueeze(0).cuda(1)
+                        seq = seq.unsqueeze(0).cuda(1)
+
+                        input_ids_for_mmi = input_ids.tolist()[0]
+                        size = len(input_ids_for_mmi) 
+                        idx_list = [idx + 1 for idx, val in
+                                    enumerate(input_ids_for_mmi) if val == 50256] 
+                        res = [input_ids_for_mmi[i: j] for i, j in
+                                zip([0] + idx_list, idx_list + 
+                                ([size] if idx_list[-1] != size else []))] 
+                        res.reverse()
+                        input_ids_reversed = [item for sublist in res for item in sublist]
+                        input_ids_reversed = torch.LongTensor(input_ids_reversed).unsqueeze(0).cuda(1)
+
+                        inputs = torch.cat((seq, input_ids_reversed), dim=-1).cuda(1)
+                        mask = torch.full_like(seq, -1, dtype=torch.long).cuda(1)
+                        inputs = inputs[:,:self.config.max_seq_len]
+                        labels = torch.cat((mask, input_ids_reversed), dim=-1).cuda(1)[:,:self.config.max_seq_len]
                         loss, *_ = self.reversed_model(inputs, lm_labels=labels)
-                        results.append((seq, -loss.float()))
+                        results.append((original_seq.cpu(), -loss.float()))
+
                 
                 MMI_temperature = 0.5
                 scores = torch.stack([x[1] for x in results], dim=0)
                 winner = torch.multinomial(F.softmax(scores / MMI_temperature, dim=0), num_samples=1).item()
 
                 output_sequences = results[winner][0]
-
             output_sequences.squeeze_()
             output = output_sequences.tolist()
             output = self.vocab.decode(output, clean_up_tokenization_spaces=True)
+
             output = output.split(self.vocab.eos_token)
-            generated_history.append(output[1])
+            assert (len(output) >= 2)
+            gen_history = output[self.config.n_context].replace("\n", " ")
+            generated_history.append(gen_history)
 
             input_ids.squeeze_()
             input_ids = input_ids.tolist()
             inputs = self.vocab.decode(input_ids, clean_up_tokenization_spaces=True)
+            inputs.replace("\n", " ")
             input_history.append(inputs)
 
             gt_ids.squeeze_()
             gt_ids = gt_ids.tolist()
             gt = self.vocab.decode(gt_ids, clean_up_tokenization_spaces=True)
             gt = gt.split(self.vocab.eos_token)
-            ground_truth_history.append(gt[0])
+            ground_truth = gt[0].replace("\n", " ")
+            ground_truth_history.append(ground_truth)
 
         target_file_name = 'responses_{}_{}_{}_{}.txt'.format(self.config.mode, self.config.n_context, beam_size, self.epoch_i)
+        if self.config.mmi:
+            target_file_name = target_file_name.replace('.txt', '_mmi.txt')
         print("Writing candidates into file {}".format(target_file_name))
         conv_idx = 0 
         with codecs.open(os.path.join(self.config.save_path, target_file_name), 'w', "utf-8") as output_f:
